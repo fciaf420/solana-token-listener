@@ -313,7 +313,7 @@ class SimpleSolListener:
                             continue
                 
                 if not users:
-                    print("��� No users found in recent messages")
+                    print(" No users found in recent messages")
                     return None
                 
                 print("\n Recent Users:")
@@ -349,23 +349,136 @@ class SimpleSolListener:
     async def check_referral(self) -> bool:
         """Check if the user joined through the correct referral link"""
         try:
-            # Get bot's chat history to check start parameter
-            async for message in self.client.iter_messages(BOT_USERNAME, limit=1):
-                if message and message.message:
-                    # Check if the start command contains our referral code
-                    if f"start={REQUIRED_REF}" in message.message:
-                        return True
+            print("\n🔍 Checking Telegram connection...")
             
-            print("\n❌ Access Denied!")
-            print(f"Please join using the referral link: https://t.me/{BOT_USERNAME}?start={REQUIRED_REF}")
-            return False
+            # First verify we can connect to Telegram
+            try:
+                await self.client.connect()
+                print("✅ Successfully connected to Telegram")
+            except Exception as e:
+                print("\n❌ Failed to connect to Telegram!")
+                print("Please check:")
+                print("1. You have created config.env file")
+                print("2. Your API_ID and API_HASH are correct in config.env")
+                print("3. Your internet connection is working")
+                print(f"\nError details: {str(e)}")
+                return False
+
+            print("\n🔍 Verifying referral...")
+            # Get bot's chat history to check start parameter
+            try:
+                async for message in self.client.iter_messages(BOT_USERNAME, limit=1):
+                    if message and message.message:
+                        # Check if the start command contains our referral code
+                        if f"start={REQUIRED_REF}" in message.message:
+                            print("✅ Referral verified successfully!")
+                            return True
+                
+                print("\n❌ Referral verification failed!")
+                print("Please make sure to:")
+                print(f"1. Join the bot using this link: https://t.me/{BOT_USERNAME}?start={REQUIRED_REF}")
+                print("2. Start the bot by clicking 'Start' or sending /start")
+                return False
+                
+            except Exception as e:
+                print("\n❌ Error checking referral!")
+                print("Please make sure you've:")
+                print(f"1. Joined the bot: https://t.me/{BOT_USERNAME}?start={REQUIRED_REF}")
+                print("2. Started a chat with the bot")
+                print(f"\nError details: {str(e)}")
+                return False
             
         except Exception as e:
-            logging.error(f"Error checking referral: {e}")
+            print(f"\n❌ Unexpected error during verification: {str(e)}")
+            return False
+
+    async def setup_target_chat(self):
+        """Interactive setup for target chat"""
+        print("\n📋 Target Chat Setup")
+        print("=" * 50)
+        print("The bot needs a channel where it will forward found tokens.")
+        print("\nOptions:")
+        print("1. Use channel username (e.g., @mychannel)")
+        print("2. Use channel ID (e.g., -100123456789)")
+        
+        while True:
+            choice = input("\nEnter your choice (1-2): ").strip()
+            
+            if choice == "1":
+                channel = input("\nEnter channel username (including @): ").strip()
+                if not channel.startswith("@"):
+                    print("❌ Channel username must start with @")
+                    continue
+                return channel
+            
+            elif choice == "2":
+                channel_id = input("\nEnter channel ID: ").strip()
+                if not channel_id.startswith("-100"):
+                    print("❌ Channel ID must start with -100")
+                    continue
+                try:
+                    int(channel_id)  # Verify it's a valid number
+                    return channel_id
+                except ValueError:
+                    print("❌ Invalid channel ID format")
+                    continue
+            
+            else:
+                print("❌ Please enter 1 or 2")
+
+    async def verify_target_chat(self, chat):
+        """Verify bot has access to target chat"""
+        try:
+            entity = await self.client.get_entity(chat)
+            try:
+                # Try to send a test message
+                msg = await self.client.send_message(
+                    entity,
+                    "🔄 Bot setup test message - Verifying channel access..."
+                )
+                await msg.delete()  # Delete the test message
+                print("\n✅ Successfully verified access to target channel!")
+                return True
+            except Exception as e:
+                print("\n❌ Bot doesn't have permission to send messages!")
+                print("Please:")
+                print("1. Add the bot as an admin to the channel")
+                print("2. Ensure the bot has permission to send messages")
+                print(f"\nError: {str(e)}")
+                return False
+        except Exception as e:
+            print("\n❌ Failed to access target channel!")
+            print("Please check:")
+            print("1. The channel exists")
+            print("2. You've entered the correct channel username/ID")
+            print("3. The bot is a member of the channel")
+            print(f"\nError: {str(e)}")
             return False
 
     async def start(self):
         """Start the bot with menu selection"""
+        print("\n📋 Checking setup...")
+        
+        # Check if config.env exists
+        if not os.path.exists('config.env'):
+            print("\n❌ config.env file not found!")
+            print("\nRequired Steps:")
+            print("1. Rename or copy config.env.sample to config.env:")
+            print("   Windows: copy config.env.sample config.env")
+            print("   Linux/Mac: cp config.env.sample config.env")
+            print("\n2. Edit config.env with your credentials:")
+            print("   - API_ID (from https://my.telegram.org/apps)")
+            print("   - API_HASH (from https://my.telegram.org/apps)")
+            return False
+            
+        # Check if required credentials are set
+        if not all([API_ID, API_HASH]):
+            print("\n❌ Missing API credentials in config.env!")
+            print("\nPlease edit config.env and set:")
+            print("- API_ID (from https://my.telegram.org/apps)")
+            print("- API_HASH (from https://my.telegram.org/apps)")
+            return False
+
         # First check referral
         print("\n🔍 Verifying access...")
         self.authorized = await self.check_referral()
@@ -377,7 +490,43 @@ class SimpleSolListener:
             print("\n⚠️ OpenAI API key not provided - Image analysis will be disabled")
             print("You can add it later in config.env if needed")
 
-        await self.client.start()
+        try:
+            await self.client.start()
+        except Exception as e:
+            print("\n❌ Failed to start the bot!")
+            print("Please check:")
+            print("1. Your API credentials are correct")
+            print("2. You have internet connection")
+            print(f"\nError details: {str(e)}")
+            return False
+
+        # Setup target chat if not configured
+        if not TARGET_CHAT:
+            print("\n⚠️ Target chat not configured!")
+            target_chat = await self.setup_target_chat()
+            if not await self.verify_target_chat(target_chat):
+                print("\n❌ Target chat setup failed!")
+                print("Please try again with a different channel")
+                return False
+            
+            # Update config.env with the new target chat
+            config_path = Path('config.env')
+            config_content = config_path.read_text()
+            if 'TARGET_CHAT=' in config_content:
+                config_content = re.sub(r'TARGET_CHAT=.*\n', f'TARGET_CHAT={target_chat}\n', config_content)
+            else:
+                config_content += f'\nTARGET_CHAT={target_chat}\n'
+            config_path.write_text(config_content)
+            print("\n✅ Target chat configured and saved to config.env!")
+            
+            # Update global variable
+            global TARGET_CHAT
+            TARGET_CHAT = target_chat
+        else:
+            # Verify existing target chat
+            if not await self.verify_target_chat(TARGET_CHAT):
+                return False
+
         self.save_config()
         
         # Load previous configuration or select new chats
@@ -593,7 +742,7 @@ class SimpleSolListener:
                 
                 await self.client.run_until_disconnected()
             else:
-                print("\n❌ Bot startup cancelled. Please make sure you:")
+                print("\n��� Bot startup cancelled. Please make sure you:")
                 print(f"1. Join using the correct referral link: https://t.me/{BOT_USERNAME}?start={REQUIRED_REF}")
                 print("2. Have valid API credentials in your config.env file")
         except KeyboardInterrupt:
