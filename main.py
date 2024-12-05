@@ -15,8 +15,20 @@ import platform
 from pathlib import Path
 from dotenv import load_dotenv
 
+# Define global variables first
+API_ID = None
+API_HASH = None
+TARGET_CHAT = None
+BOT_USERNAME = 'odysseus_trojanbot'
+REQUIRED_REF = 'r-forza222'
+
 # Load environment variables
 load_dotenv('config.env')
+
+# Update global variables with environment values
+API_ID = os.getenv('API_ID')
+API_HASH = os.getenv('API_HASH')
+TARGET_CHAT = os.getenv('TARGET_CHAT')
 
 # Configure logging with platform-specific path
 log_dir = "logs"
@@ -34,24 +46,6 @@ logging.basicConfig(
 logging.info(f"Platform: {platform.system()} {platform.release()}")
 logging.info(f"Python version: {platform.python_version()}")
 
-# Telegram credentials from environment variables
-API_ID = os.getenv('API_ID')
-API_HASH = os.getenv('API_HASH')
-TARGET_CHAT = os.getenv('TARGET_CHAT')
-
-# Validate required environment variables
-if not all([API_ID, API_HASH, TARGET_CHAT]):
-    raise ValueError(
-        "Please set the following required variables in config.env file:\n"
-        "- API_ID\n"
-        "- API_HASH\n"
-        "- TARGET_CHAT (channel where tokens will be forwarded)"
-    )
-
-# Referral settings
-REQUIRED_REF = 'r-forza222'
-BOT_USERNAME = 'odysseus_trojanbot'
-
 # Config file - use platform-agnostic path
 CONFIG_FILE = str(Path('.') / 'sol_listener_config.json')
 
@@ -61,6 +55,7 @@ os.makedirs(TEMP_DIR, exist_ok=True)
 
 class SimpleSolListener:
     def __init__(self):
+        global TARGET_CHAT
         self.config = self.load_config()
         session = StringSession(self.config.get('session_string', ''))
         self.client = TelegramClient(session, API_ID, API_HASH)
