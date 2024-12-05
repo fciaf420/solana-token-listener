@@ -195,7 +195,11 @@ class SimpleSolListener:
                 if not self.openai_client:
                     logging.debug("Skipping image analysis - OpenAI not configured")
                     if message.message:  # Still check for text in media messages
+                        logging.info(f"Received message: {message.message}")
                         ca = await self.extract_ca_from_text(message.message)
+                        if ca:
+                            logging.info(f"Checking text for CA: {message.message}")
+                            logging.info(f"Found CA: {ca}")
                     return "media_skipped", ca
                 
                 content_type = "photo" if isinstance(message.media, types.MessageMediaPhoto) else "document"
@@ -205,11 +209,20 @@ class SimpleSolListener:
                 file_path = await self.download_media_message(message)
                 if file_path:
                     text = await self.analyze_image_with_gpt4(file_path)
-                    ca = await self.extract_ca_from_text(text)
+                    if text:
+                        logging.info(f"Received image text: {text}")
+                        ca = await self.extract_ca_from_text(text)
+                        if ca:
+                            logging.info(f"Checking image text for CA: {text}")
+                            logging.info(f"Found CA: {ca}")
                     await self.cleanup_temp_file(file_path)
             
             elif message.message:  # Text message
+                logging.info(f"Received message: {message.message}")
                 ca = await self.extract_ca_from_text(message.message)
+                if ca:
+                    logging.info(f"Checking text for CA: {message.message}")
+                    logging.info(f"Found CA: {ca}")
         
         except Exception as e:
             logging.error(f"Error processing message content: {str(e)}")
@@ -300,7 +313,7 @@ class SimpleSolListener:
                             continue
                 
                 if not users:
-                    print("❌ No users found in recent messages")
+                    print("��� No users found in recent messages")
                     return None
                 
                 print("\n Recent Users:")
