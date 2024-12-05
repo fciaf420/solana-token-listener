@@ -18,7 +18,7 @@ from dotenv import load_dotenv
 # Define global variables first
 API_ID = None
 API_HASH = None
-TARGET_CHAT = None
+TARGET_CHAT = os.getenv('TARGET_CHAT')  # Load from env but don't modify
 BOT_USERNAME = 'odysseus_trojanbot'
 REQUIRED_REF = 'r-forza222'
 
@@ -28,7 +28,6 @@ load_dotenv('config.env')
 # Update global variables with environment values
 API_ID = os.getenv('API_ID')
 API_HASH = os.getenv('API_HASH')
-TARGET_CHAT = os.getenv('TARGET_CHAT')
 
 # Configure logging with platform-specific path
 log_dir = "logs"
@@ -55,7 +54,6 @@ os.makedirs(TEMP_DIR, exist_ok=True)
 
 class SimpleSolListener:
     def __init__(self):
-        global TARGET_CHAT
         self.config = self.load_config()
         session = StringSession(self.config.get('session_string', ''))
         self.client = TelegramClient(session, API_ID, API_HASH)
@@ -531,13 +529,15 @@ class SimpleSolListener:
             config_path.write_text(config_content)
             print("\n✅ Target chat configured and saved to config.env!")
             
-            # Update global variable
-            global TARGET_CHAT
-            TARGET_CHAT = target_chat
+            # Store in config for current session
+            self.config['target_chat'] = target_chat
+            self.save_config()
         else:
             # Verify existing target chat
             if not await self.verify_target_chat(TARGET_CHAT):
                 return False
+            self.config['target_chat'] = TARGET_CHAT
+            self.save_config()
 
         self.save_config()
         
@@ -601,7 +601,7 @@ class SimpleSolListener:
                 chat_name = entity.title
                 if str(chat_id) in self.filtered_users:
                     user_count = len(self.filtered_users[str(chat_id)])
-                    print(f"✓ {chat_name}: Monitoring {user_count} specific users")
+                    print(f"�� {chat_name}: Monitoring {user_count} specific users")
                 else:
                     print(f"✓ {chat_name}: Monitoring all users")
             except:
@@ -664,8 +664,9 @@ class SimpleSolListener:
                 logging.error(f"Error getting message details: {e}")
 
             # Forward just the CA to Telegram target chat
+            target = self.config.get('target_chat', TARGET_CHAT)
             await self.client.send_message(
-                TARGET_CHAT,
+                target,
                 contract_address
             )
             
