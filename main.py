@@ -364,24 +364,41 @@ class SimpleSolListener:
                 print(f"\nError details: {str(e)}")
                 return False
 
-            print("\n🔍 Verifying referral...")
-            # Get bot's chat history to check start parameter
+            print("\n🔍 Verifying bot access...")
             try:
-                async for message in self.client.iter_messages(BOT_USERNAME, limit=1):
-                    if message and message.message:
-                        # Check if the start command contains our referral code
-                        if f"start={REQUIRED_REF}" in message.message:
-                            print("✅ Referral verified successfully!")
-                            return True
+                # First check if user can access the bot at all
+                bot_entity = await self.client.get_entity(BOT_USERNAME)
+                if not bot_entity:
+                    print(f"\n❌ Cannot access @{BOT_USERNAME}!")
+                    print(f"Please join: https://t.me/{BOT_USERNAME}?start={REQUIRED_REF}")
+                    return False
                 
-                print("\n❌ Referral verification failed!")
-                print("Please make sure to:")
-                print(f"1. Join the bot using this link: https://t.me/{BOT_USERNAME}?start={REQUIRED_REF}")
-                print("2. Start the bot by clicking 'Start' or sending /start")
+                print("✅ Bot access verified")
+                
+                # Check message history for any interaction
+                messages = []
+                async for message in self.client.iter_messages(BOT_USERNAME, limit=20):
+                    messages.append(message.message if message.message else "")
+                
+                # Look for referral code or existing bot usage
+                for msg in messages:
+                    # Check for our referral code
+                    if f"start={REQUIRED_REF}" in msg:
+                        print("✅ Referral link verified!")
+                        return True
+                    # Check for existing bot usage (common commands/responses)
+                    elif any(term in msg.lower() for term in ['/start', 'welcome to', 'bot activated', 'successfully']):
+                        print("✅ Existing bot user verified!")
+                        return True
+                
+                print("\n⚠️ No bot activation found!")
+                print("Please either:")
+                print(f"1. Use referral link: https://t.me/{BOT_USERNAME}?start={REQUIRED_REF}")
+                print("2. Or start the bot: Send /start to @" + BOT_USERNAME)
                 return False
                 
             except Exception as e:
-                print("\n❌ Error checking referral!")
+                print("\n❌ Error checking bot access!")
                 print("Please make sure you've:")
                 print(f"1. Joined the bot: https://t.me/{BOT_USERNAME}?start={REQUIRED_REF}")
                 print("2. Started a chat with the bot")
@@ -742,7 +759,7 @@ class SimpleSolListener:
                 
                 await self.client.run_until_disconnected()
             else:
-                print("\n��� Bot startup cancelled. Please make sure you:")
+                print("\n Bot startup cancelled. Please make sure you:")
                 print(f"1. Join using the correct referral link: https://t.me/{BOT_USERNAME}?start={REQUIRED_REF}")
                 print("2. Have valid API credentials in your config.env file")
         except KeyboardInterrupt:

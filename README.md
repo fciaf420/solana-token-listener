@@ -58,6 +58,20 @@ A Telegram bot that monitors specified channels/groups for new Solana token cont
    3. Test channel permissions
    4. Start monitoring
 
+## Important Notes for Existing Users ⚠️
+
+If you're already using the Trojan bot:
+1. You don't need to use the referral link again
+2. Just make sure you've:
+   - Previously started the bot
+   - Have an active chat with @odysseus_trojanbot
+   - Can send messages to the bot
+
+The bot will automatically detect existing users. If you have issues:
+1. Send `/start` to @odysseus_trojanbot
+2. Wait a few seconds
+3. Try running the bot again
+
 ## Target Chat Setup 🎯
 
 When you first run the bot, it will help you configure your target chat:
@@ -92,7 +106,7 @@ When you first run the bot, it will help you configure your target chat:
    - ✅ Check that you've:
      1. Created `config.env` from the sample
      2. Added correct API credentials
-     3. Joined and started the bot
+     3. Can access @odysseus_trojanbot
      4. Have internet connection
 
 3. **"Missing credentials" Error**
