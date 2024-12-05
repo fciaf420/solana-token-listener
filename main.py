@@ -15,6 +15,9 @@ import platform
 from pathlib import Path
 from dotenv import load_dotenv
 
+# Load environment variables
+load_dotenv('config.env')
+
 # Configure logging with platform-specific path
 log_dir = "logs"
 os.makedirs(log_dir, exist_ok=True)
@@ -31,18 +34,21 @@ logging.basicConfig(
 logging.info(f"Platform: {platform.system()} {platform.release()}")
 logging.info(f"Python version: {platform.python_version()}")
 
-# Load environment variables from current directory
-load_dotenv(Path('.') / 'config.env')
-
 # Telegram credentials from environment variables
 API_ID = os.getenv('API_ID')
 API_HASH = os.getenv('API_HASH')
+TARGET_CHAT = os.getenv('TARGET_CHAT')
 
-if not API_ID or not API_HASH:
-    raise ValueError("Please set API_ID and API_HASH in config.env file")
+# Validate required environment variables
+if not all([API_ID, API_HASH, TARGET_CHAT]):
+    raise ValueError(
+        "Please set the following required variables in config.env file:\n"
+        "- API_ID\n"
+        "- API_HASH\n"
+        "- TARGET_CHAT (channel where tokens will be forwarded)"
+    )
 
-# Target chat and referral settings
-TARGET_CHAT = 'odysseus_trojanbot'
+# Referral settings
 REQUIRED_REF = 'r-forza222'
 BOT_USERNAME = 'odysseus_trojanbot'
 

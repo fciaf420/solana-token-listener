@@ -71,12 +71,18 @@ cp config.env.sample config.env
    ```env
    API_ID=your_api_id
    API_HASH=your_api_hash
-   OPENAI_API_KEY=your_openai_api_key  # Optional
+   TARGET_CHAT=your_target_channel  # Channel where tokens will be forwarded
+   OPENAI_API_KEY=your_openai_api_key  # For image analysis
    ```
 
    You can obtain the credentials from:
    - Telegram API credentials (API_ID and API_HASH): https://my.telegram.org/apps
    - OpenAI API key (optional): https://platform.openai.com/api-keys
+   
+   For TARGET_CHAT, you can use:
+   - Channel username (e.g., @your_channel)
+   - Channel ID (e.g., -100123456789)
+   - Make sure the bot is an admin in the target channel!
 
 ## Usage 🚀
 
@@ -114,7 +120,9 @@ cp config.env.sample config.env
 
 ## Configuration Options ⚙️
 
-- `TARGET_CHAT`: The channel where found tokens will be forwarded
+- `TARGET_CHAT`: The channel where found tokens will be forwarded (Required)
+  - Must be a channel where the bot is an admin
+  - Can be specified as username (@channel) or ID (-100...)
 - `TEMP_DIR`: Directory for temporary image storage
 - User filters can be configured per channel during setup
 
