@@ -118,6 +118,15 @@ cp config.env.sample config.env
 - Automatic duplicate detection
 - Quick links generation
 
+### Token Storage
+- All processed token CAs are stored in `processed_tokens.json`
+- File is created automatically when the first token is found
+- Not created at startup if no tokens have been processed yet
+- Used to prevent duplicate token forwarding
+- Format: JSON array of unique token addresses
+- You can safely delete this file to reset token history
+- File is updated in real-time as new tokens are found
+
 ## Configuration Options ⚙️
 
 - `TARGET_CHAT`: The channel where found tokens will be forwarded (Required)
