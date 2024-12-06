@@ -14,6 +14,7 @@ import time
 import platform
 from pathlib import Path
 from dotenv import load_dotenv
+from telethon.errors import SessionPasswordNeededError
 
 # Define global variables first
 API_ID = None
@@ -353,127 +354,64 @@ class SimpleSolListener:
             # First verify we can connect to Telegram
             try:
                 await self.client.connect()
-                print("✅ Successfully connected to Telegram")
+                print("✅ Connected to Telegram")
                 
-                # Check if we need to sign in
+                # Handle authentication if needed
                 if not await self.client.is_user_authorized():
-                    print("\n📱 First-time setup: Phone verification needed")
+                    print("\n📱 Phone verification needed")
                     phone = input("Enter your phone number (international format, e.g. +1234567890): ")
+                    code = await self.client.send_code_request(phone)
+                    verification_code = input("\n📲 Enter the verification code sent to your phone: ")
                     try:
-                        code = await self.client.send_code_request(phone)
-                        verification_code = input("\n📲 Enter the verification code sent to your phone: ")
                         await self.client.sign_in(phone, verification_code)
-                        print("✅ Successfully verified phone number!")
-                    except Exception as e:
-                        print("\n❌ Error during phone verification!")
-                        print(f"Error details: {str(e)}")
-                        return False
-                
-                print("✅ User authentication verified")
+                    except SessionPasswordNeededError:
+                        password = input("\n🔐 2FA is enabled. Please enter your password: ")
+                        await self.client.sign_in(password=password)
+                    print("✅ Successfully verified!")
 
-                # Check if target chat is configured
-                if not TARGET_CHAT:
-                    print("\n❌ Target chat not configured!")
-                    print("Please set TARGET_CHAT in config.env")
-                    return False
-                
-                print(f"\n🔍 Attempting to access target chat: {TARGET_CHAT}")
-                
-                # Try to resolve the target chat
+                # Now check bot access
                 try:
-                    # First try as a username
-                    try:
-                        target_entity = await self.client.get_entity(TARGET_CHAT)
-                    except ValueError:
-                        # If username fails, try as a channel ID
-                        if TARGET_CHAT.startswith('-100'):
-                            try:
-                                target_entity = await self.client.get_entity(int(TARGET_CHAT))
-                            except ValueError as e:
-                                print("\n❌ Invalid channel ID format!")
-                                print(f"Error: {str(e)}")
-                                return False
-                        else:
-                            print("\n❌ Could not resolve target chat!")
-                            print("Please make sure:")
-                            print("1. The chat/channel exists")
-                            print("2. You are a member of the chat/channel")
-                            return False
+                    bot_entity = await self.client.get_input_entity(BOT_USERNAME)
                     
-                    print("✅ Target chat access verified")
+                    # First check if we're already a member by looking at message history
+                    messages = []
+                    async for message in self.client.iter_messages(bot_entity, limit=1):
+                        if message:
+                            print("✅ Bot access verified - Already a member!")
+                            return True
                     
-                    # Try to send a test message
-                    try:
-                        msg = await self.client.send_message(
-                            target_entity,
-                            "🔄 Bot setup test message - Verifying access..."
-                        )
-                        await msg.delete()  # Delete the test message
-                        print("✅ Successfully verified message sending!")
-
-                        # Now check if user is already using the Trojan bot
-                        try:
-                            # Try to get bot entity
-                            bot_entity = await self.client.get_input_entity(BOT_USERNAME)
-                            
-                            # Try to send /start command
-                            try:
-                                await self.client(functions.messages.StartBotRequest(
-                                    bot=bot_entity,
-                                    peer=bot_entity,
-                                    start_param=REQUIRED_REF
-                                ))
-                                print("✅ Successfully activated with referral!")
-                            except Exception as e:
-                                if "BOT_ALREADY_STARTED" in str(e):
-                                    print("✅ Verified as existing Trojan bot user!")
-                                else:
-                                    print("\n⚠️ Could not verify Trojan bot status")
-                                    print("If you're an existing user:")
-                                    print(f"1. Open @{BOT_USERNAME} in Telegram")
-                                    print("2. Send /start command")
-                                    print("3. Run this bot again")
-                                    print("\nIf you're new:")
-                                    print(f"Use referral link: https://t.me/{BOT_USERNAME}?start={REQUIRED_REF}")
-                                    return False
-                            
-                        except Exception as e:
-                            print("\n⚠️ Could not verify Trojan bot access")
-                            print("Please make sure:")
-                            print(f"1. You can access @{BOT_USERNAME}")
-                            print("2. You've either:")
-                            print(f"   - Used the referral: https://t.me/{BOT_USERNAME}?start={REQUIRED_REF}")
-                            print("   - Or are an existing user and have sent /start")
-                            return False
-
+                    # If no history, guide user to join
+                    print(f"\n👉 Please click this link to join: https://t.me/{BOT_USERNAME}?start={REQUIRED_REF}")
+                    print("After clicking, press Enter to continue...")
+                    input()
+                    
+                    # Try to send start command
+                    await self.client(functions.messages.StartBotRequest(
+                        bot=bot_entity,
+                        peer=bot_entity,
+                        start_param=REQUIRED_REF
+                    ))
+                    print("✅ Successfully joined!")
+                    return True
+                    
+                except Exception as e:
+                    if "BOT_ALREADY_STARTED" in str(e):
+                        print("✅ Already a member!")
                         return True
-                    except Exception as e:
-                        print("\n❌ Cannot send messages to target chat!")
-                        print("Please make sure:")
-                        print("1. You have permission to send messages")
-                        print("2. The chat/channel exists and you're a member")
-                        print(f"\nError details: {str(e)}")
+                    else:
+                        print("\n❌ Couldn't verify bot access")
+                        print(f"\nPlease:")
+                        print(f"1. Open this link: https://t.me/{BOT_USERNAME}?start={REQUIRED_REF}")
+                        print("2. Click 'Start' in the bot chat")
+                        print("3. Run this script again")
                         return False
                         
-                except Exception as e:
-                    print("\n❌ Cannot access target chat!")
-                    print("Please make sure:")
-                    print(f"1. You have joined {TARGET_CHAT}")
-                    print("2. The chat/channel exists")
-                    print(f"\nError details: {str(e)}")
-                    return False
-                
             except Exception as e:
-                print("\n❌ Failed to connect to Telegram!")
-                print("Please check:")
-                print("1. You have created config.env file")
-                print("2. Your API_ID and API_HASH are correct in config.env")
-                print("3. Your internet connection is working")
-                print(f"\nError details: {str(e)}")
+                print(f"\n❌ Connection error: {str(e)}")
                 return False
-            
+                
         except Exception as e:
-            print(f"\n❌ Unexpected error during verification: {str(e)}")
+            print(f"\n❌ Verification failed: {str(e)}")
             return False
 
     async def setup_target_chat(self):
@@ -564,7 +502,7 @@ class SimpleSolListener:
             return False
 
         # First check referral
-        print("\n🔍 Verifying access...")
+        print("\n Verifying access...")
         self.authorized = await self.check_referral()
         if not self.authorized:
             return False
