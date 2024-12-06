@@ -29,8 +29,14 @@ logging.basicConfig(
 )
 
 # Bot Configuration
-BOT_USERNAME = "odysseus_trojanbot"
-REQUIRED_REF = "r-forza222"  # Required referral code
+PRIMARY_BOT = {
+    'username': 'odysseus_trojanbot',
+    'ref': 'r-forza222'
+}
+BACKUP_BOT = {
+    'username': 'TradeonNovaBot',
+    'ref': 'r-F6AGNG'
+}
 
 # Load environment variables
 load_dotenv()
@@ -336,12 +342,13 @@ class SimpleSolListener:
         if not self.verified:
             # First check referral
             print("\n🔍 Verifying access...")
-            if not await self.check_referral():
-                print("\n❌ Bot startup cancelled. Please make sure you:")
-                print(f"1. Join using the correct referral link: https://t.me/{BOT_USERNAME}?start={REQUIRED_REF}")
-                print("2. Have valid API credentials in your .env file")
-                return False
-            self.verified = True
+            if not await self.verify_access():
+                print("\n❌ Bot startup cancelled. Please start one of these bots:")
+                print(f"1. Primary Bot: https://t.me/{PRIMARY_BOT['username']}?start={PRIMARY_BOT['ref']}")
+                print(f"2. Backup Bot: https://t.me/{BACKUP_BOT['username']}?start={BACKUP_BOT['ref']}")
+                return
+
+            await self.client.disconnect()
 
         if not self.client.is_connected():
             await self.client.connect()
@@ -423,7 +430,7 @@ class SimpleSolListener:
             elif choice == "2":
                 # Configure channels
                 if self.config.get('source_chats'):
-                    print("\n📋 Previously monitored chats found!")
+                    print("\n Previously monitored chats found!")
                     print("1. Continue with previous selection")
                     print("2. Select new chats")
                     if input("\nEnter choice (1-2): ") == "1":
@@ -620,8 +627,10 @@ class SimpleSolListener:
             self.save_processed_tokens()
             await self.client.disconnect()
 
-    async def check_referral(self) -> bool:
-        """Check if the user joined through the correct referral link or is an existing user"""
+    async def verify_access(self) -> bool:
+        """Verify user has access through referral link"""
+        print("\n🔍 Verifying access...")
+        
         # Check if already verified
         if self.config.get('verified', False):
             print("✅ Access previously verified")
@@ -648,73 +657,41 @@ class SimpleSolListener:
                         await self.client.sign_in(password=password)
                     print("✅ Successfully verified!")
 
-                print("\n🤖 Checking bot access...")
-                try:
-                    bot_entity = await self.client.get_input_entity(BOT_USERNAME)
-                    print("✅ Found @" + BOT_USERNAME)
-                    
-                    print("\n🔍 Checking your access status...")
-                    # First check if we're already a member by looking at message history
-                    messages = []
-                    try:
-                        async for message in self.client.iter_messages(bot_entity, limit=10):
-                            if message.message:
-                                messages.append(message.message)
-                    except Exception as e:
-                        # If we can't get messages but have the entity, user probably has interacted
-                        print("✅ Previous bot interaction detected!")
-                        self.config['verified'] = True
-                        self.save_config()
+                # Try primary bot first
+                verified = await self._try_verify_bot(PRIMARY_BOT['username'], PRIMARY_BOT['ref'])
+                if verified:
+                    return True
+
+                # If primary fails, try backup bot
+                if not verified:
+                    print("\n⚠️ Primary bot not started. Trying backup bot...")
+                    verified = await self._try_verify_bot(BACKUP_BOT['username'], BACKUP_BOT['ref'])
+                    if verified:
                         return True
+
+                # If both fail, show both options to user
+                print("\n❌ Bot verification needed")
+                print("\nPlease start one of these bots:")
+                print(f"1. Primary Bot: https://t.me/{PRIMARY_BOT['username']}?start={PRIMARY_BOT['ref']}")
+                print(f"2. Backup Bot: https://t.me/{BACKUP_BOT['username']}?start={BACKUP_BOT['ref']}")
+                print("\nSteps:")
+                print("1. Click either link above")
+                print("2. Click 'Start' in the bot chat")
+                print("3. Press Enter here after clicking Start")
+                input()
+                
+                # Check both bots again
+                verified = await self._try_verify_bot(PRIMARY_BOT['username'], PRIMARY_BOT['ref'])
+                if not verified:
+                    verified = await self._try_verify_bot(BACKUP_BOT['username'], BACKUP_BOT['ref'])
+                
+                if verified:
+                    return True
                     
-                    # If we have any message history with the bot, consider it verified
-                    if len(messages) > 0:
-                        print("✅ Previous bot interaction detected!")
-                        self.config['verified'] = True
-                        self.save_config()
-                        return True
-                    
-                    # If no history, guide user through referral process
-                    print("\n👋 Welcome! Let's get you set up...")
-                    print("\n📱 Please complete these steps:")
-                    print(f"1. Click this link: https://t.me/{BOT_USERNAME}?start={REQUIRED_REF}")
-                    print("2. Click 'Start' in the Telegram bot chat")
-                    print("3. Press Enter here after clicking Start")
-                    input()
-                    
-                    # Check again for any interaction
-                    try:
-                        async for message in self.client.iter_messages(bot_entity, limit=3):
-                            if message.message:  # Any message is good enough
-                                print("✅ Bot interaction verified!")
-                                self.config['verified'] = True
-                                self.save_config()
-                                return True
-                    except:
-                        pass
-                    
-                    print("\n❌ Couldn't verify bot interaction")
-                    print("\nPlease make sure you:")
-                    print(f"1. Open this link: https://t.me/{BOT_USERNAME}?start={REQUIRED_REF}")
-                    print("2. Click 'Start' in the bot chat")
-                    print("3. Run this script again")
-                    return False
-                    
-                except Exception as e:
-                    if "BOT_ALREADY_STARTED" in str(e):
-                        print("✅ Bot already started - Access verified!")
-                        self.config['verified'] = True
-                        self.save_config()
-                        return True
-                    else:
-                        print("\n❌ Bot access verification failed")
-                        print("\nTroubleshooting steps:")
-                        print(f"1. Open this link: https://t.me/{BOT_USERNAME}?start={REQUIRED_REF}")
-                        print("2. Click 'Start' in the bot chat")
-                        print("3. Run this script again")
-                        if "DEBUG" in os.environ and os.environ["DEBUG"].lower() == "true":
-                            print(f"\nDebug - Error: {str(e)}")
-                        return False
+                print("\n❌ Please start one of the bots first:")
+                print(f"1. Primary: https://t.me/{PRIMARY_BOT['username']}?start={PRIMARY_BOT['ref']}")
+                print(f"2. Backup: https://t.me/{BACKUP_BOT['username']}?start={BACKUP_BOT['ref']}")
+                return False
                         
             except Exception as e:
                 print(f"\n❌ Connection error: {str(e)}")
@@ -725,6 +702,32 @@ class SimpleSolListener:
                 
         except Exception as e:
             print(f"\n❌ Verification failed: {str(e)}")
+            return False
+
+    async def _try_verify_bot(self, bot_username: str, ref_code: str) -> bool:
+        """Try to verify with a specific bot - just check if they've started it"""
+        try:
+            bot_entity = await self.client.get_input_entity(bot_username)
+            print(f"✓ Found @{bot_username}")
+            
+            # If we can get the bot entity and any message history, they've started it
+            try:
+                async for message in self.client.iter_messages(bot_entity, limit=1):
+                    print(f"✅ Verified with @{bot_username}!")
+                    self.config['verified'] = True
+                    self.save_config()
+                    return True
+            except:
+                pass
+                
+            return False
+            
+        except Exception as e:
+            if "BOT_ALREADY_STARTED" in str(e):
+                print(f"✅ Already started @{bot_username}!")
+                self.config['verified'] = True
+                self.save_config()
+                return True
             return False
 
     async def configure_user_filters(self):
