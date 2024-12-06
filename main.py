@@ -113,28 +113,71 @@ class SimpleSolListener:
         self.forwarded_count = 0
         self.authorized = False
         
-        # Load or create config
-        self.config_file = 'sol_listener_config.json'
-        self.config = self.load_config()
+        # Initialize necessary files and directories
+        print("\n📁 Initializing file structure...")
         
         # Create necessary directories
         os.makedirs('logs', exist_ok=True)
         os.makedirs('temp_images', exist_ok=True)
+        
+        # Initialize config
+        self.config_file = 'sol_listener_config.json'
+        if not os.path.exists(self.config_file):
+            print("✨ Creating new configuration file...")
+            self.config = {
+                'verified': False,
+                'source_chats': [],
+                'filtered_users': {},
+                'target_chat': None
+            }
+            self.save_config()
+        else:
+            self.config = self.load_config()
+        
+        # Initialize processed tokens
+        self.tokens_file = 'processed_tokens.json'
+        if not os.path.exists(self.tokens_file):
+            print("✨ Creating processed tokens file...")
+            self.processed_tokens = set()
+            self.save_processed_tokens()
+        else:
+            self.processed_tokens = self.load_processed_tokens()
+        
+        print("✅ File structure initialized")
 
     def load_config(self):
         """Load configuration from file"""
-        if os.path.exists(self.config_file):
-            try:
-                with open(self.config_file, 'r') as f:
-                    return json.load(f)
-            except:
-                return {}
-        return {}
+        try:
+            with open(self.config_file, 'r') as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"⚠️ Error loading config: {str(e)}")
+            return {}
 
     def save_config(self):
         """Save configuration to file"""
-        with open(self.config_file, 'w') as f:
-            json.dump(self.config, f)
+        try:
+            with open(self.config_file, 'w') as f:
+                json.dump(self.config, f, indent=4)
+        except Exception as e:
+            print(f"⚠️ Error saving config: {str(e)}")
+
+    def load_processed_tokens(self) -> set:
+        """Load processed tokens from file"""
+        try:
+            with open(self.tokens_file, 'r') as f:
+                return set(json.load(f))
+        except Exception as e:
+            print(f"⚠️ Error loading processed tokens: {str(e)}")
+            return set()
+
+    def save_processed_tokens(self):
+        """Save processed tokens to file"""
+        try:
+            with open(self.tokens_file, 'w') as f:
+                json.dump(list(self.processed_tokens), f, indent=4)
+        except Exception as e:
+            print(f"⚠️ Error saving processed tokens: {str(e)}")
 
     async def check_referral(self) -> bool:
         """Check if the user joined through the correct referral link or is an existing user"""
@@ -431,7 +474,7 @@ class SimpleSolListener:
 
                 # Load previous configuration or select new chats
                 if self.config.get('source_chats'):
-                    print("\n���� Previously monitored chats found!")
+                    print("\n Previously monitored chats found!")
                     print("1. Continue with previous selection")
                     print("2. Select new chats")
                     if input("\nEnter choice (1-2): ") == "1":
@@ -540,26 +583,6 @@ class SimpleSolListener:
                     'type': 'Channel' if dialog.is_channel else 'Group'
                 })
         return dialogs
-
-    def load_processed_tokens(self) -> set:
-        """Load previously processed tokens"""
-        tokens_path = Path('processed_tokens.json')
-        try:
-            if tokens_path.exists():
-                with tokens_path.open('r', encoding='utf-8') as f:
-                    return set(json.load(f))
-        except Exception as e:
-            logging.error(f"Error loading processed tokens: {e}")
-        return set()
-
-    def save_processed_tokens(self):
-        """Save processed tokens to file"""
-        tokens_path = Path('processed_tokens.json')
-        try:
-            with tokens_path.open('w', encoding='utf-8') as f:
-                json.dump(list(self.processed_tokens), f)
-        except Exception as e:
-            logging.error(f"Error saving processed tokens: {e}")
 
     async def is_token_processed(self, contract_address: str) -> bool:
         """Check if token was already processed"""
