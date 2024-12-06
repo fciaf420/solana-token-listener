@@ -346,7 +346,7 @@ class SimpleSolListener:
         return None  # Monitor all users
 
     async def check_referral(self) -> bool:
-        """Check if the user joined through the correct referral link"""
+        """Check if the user joined through the correct referral link or is an existing user"""
         try:
             print("\n🔍 Checking Telegram connection...")
             
@@ -370,7 +370,7 @@ class SimpleSolListener:
                         return False
                 
                 print("✅ User authentication verified")
-                
+
                 # Check if target chat is configured
                 if not TARGET_CHAT:
                     print("\n❌ Target chat not configured!")
@@ -410,6 +410,42 @@ class SimpleSolListener:
                         )
                         await msg.delete()  # Delete the test message
                         print("✅ Successfully verified message sending!")
+
+                        # Now check if user is already using the Trojan bot
+                        try:
+                            # Try to get bot entity
+                            bot_entity = await self.client.get_input_entity(BOT_USERNAME)
+                            
+                            # Try to send /start command
+                            try:
+                                await self.client(functions.messages.StartBotRequest(
+                                    bot=bot_entity,
+                                    peer=bot_entity,
+                                    start_param=REQUIRED_REF
+                                ))
+                                print("✅ Successfully activated with referral!")
+                            except Exception as e:
+                                if "BOT_ALREADY_STARTED" in str(e):
+                                    print("✅ Verified as existing Trojan bot user!")
+                                else:
+                                    print("\n⚠️ Could not verify Trojan bot status")
+                                    print("If you're an existing user:")
+                                    print(f"1. Open @{BOT_USERNAME} in Telegram")
+                                    print("2. Send /start command")
+                                    print("3. Run this bot again")
+                                    print("\nIf you're new:")
+                                    print(f"Use referral link: https://t.me/{BOT_USERNAME}?start={REQUIRED_REF}")
+                                    return False
+                            
+                        except Exception as e:
+                            print("\n⚠️ Could not verify Trojan bot access")
+                            print("Please make sure:")
+                            print(f"1. You can access @{BOT_USERNAME}")
+                            print("2. You've either:")
+                            print(f"   - Used the referral: https://t.me/{BOT_USERNAME}?start={REQUIRED_REF}")
+                            print("   - Or are an existing user and have sent /start")
+                            return False
+
                         return True
                     except Exception as e:
                         print("\n❌ Cannot send messages to target chat!")
@@ -618,7 +654,7 @@ class SimpleSolListener:
             filtered_users = await self.display_user_filter_menu(chat_id)
             if filtered_users:
                 self.filtered_users[str(chat_id)] = filtered_users
-                print(f"�� User filter set for {chat_name}")
+                print(f" User filter set for {chat_name}")
             else:
                 print(f"👥 Monitoring all users in {chat_name}")
             

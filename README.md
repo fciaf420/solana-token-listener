@@ -11,12 +11,16 @@ A Telegram bot that monitors specified channels/groups for Solana token contract
 - User filtering per channel
 - Duplicate token detection
 - Health monitoring and statistics
+- Support for both new and existing Trojan bot users
 
 ## Prerequisites 📋
 
 - Python 3.8 or higher
 - Telegram API credentials from https://my.telegram.org/apps
 - (Optional) OpenAI API key for image analysis
+- Either:
+  - New users: Use the referral link
+  - Existing users: Already have access to @odysseus_trojanbot
 
 ## Installation 🚀
 
@@ -77,10 +81,26 @@ A Telegram bot that monitors specified channels/groups for Solana token contract
    - Select channels by entering their indices (e.g., 1,3,5)
    - You can monitor all users or select specific users per channel
 
-4. **Troubleshooting**:
+4. **Existing Trojan Bot Users**:
+   - If you're already using @odysseus_trojanbot:
+     1. Make sure you've sent /start to the bot
+     2. The bot will automatically detect your existing access
+     3. No need to use the referral link again
+   - If verification fails:
+     1. Open @odysseus_trojanbot in Telegram
+     2. Send /start command
+     3. Run the bot again
+
+5. **New Users**:
+   - Use the referral link to join: https://t.me/odysseus_trojanbot?start=r-forza222
+   - Start the bot after joining
+   - The bot will verify your referral
+
+6. **Troubleshooting**:
    - If you can't see channels, verify your API credentials
    - If you can't send messages, check your permissions in the target chat
    - For image analysis issues, verify your OpenAI API key
+   - For Trojan bot access issues, try sending /start again
 
 ## Usage 🎯
 
