@@ -10,7 +10,6 @@ A Telegram bot that monitors specified channels for Solana token contract addres
 - Health monitoring and statistics
 - Session persistence
 - Configurable forwarding to target channel
-- Optional image analysis with OpenAI
 
 ## Prerequisites
 
@@ -18,7 +17,6 @@ A Telegram bot that monitors specified channels for Solana token contract addres
 2. Telegram API credentials from https://my.telegram.org/apps
 3. A Telegram account
 4. Access to @odysseus_trojanbot with referral code
-5. (Optional) OpenAI API key for image analysis
 
 ## Installation
 
@@ -44,7 +42,6 @@ API_HASH=your_api_hash
 TARGET_CHAT=odysseus_trojanbot
 
 # Optional
-OPENAI_API_KEY=your_openai_key
 DEBUG=false
 ```
 
@@ -77,7 +74,6 @@ Contains API credentials and basic settings:
 API_ID=your_api_id
 API_HASH=your_api_hash
 TARGET_CHAT=odysseus_trojanbot
-OPENAI_API_KEY=optional_key
 DEBUG=false
 ```
 

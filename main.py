@@ -7,7 +7,6 @@ from typing import List, Dict
 import json
 import os
 import base64
-from openai import AsyncOpenAI, OpenAI
 import aiohttp
 import io
 import time
@@ -30,7 +29,6 @@ logger = logging.getLogger(__name__)
 
 def load_and_validate_env():
     """Load and validate environment variables"""
-    # Try loading .env first, then config.env as fallback
     env_file = '.env'
     if not Path(env_file).exists():
         env_file = 'config.env'
@@ -45,7 +43,6 @@ def load_and_validate_env():
     api_id = os.getenv('API_ID')
     api_hash = os.getenv('API_HASH')
     target_chat = os.getenv('TARGET_CHAT')
-    openai_api_key = os.getenv('OPENAI_API_KEY')
     
     # Validate API_ID
     try:
@@ -68,10 +65,10 @@ def load_and_validate_env():
     logger.debug(f"Debug - API_ID: {api_id}")
     logger.debug(f"Debug - TARGET_CHAT: {target_chat}")
     
-    return api_id, api_hash, target_chat, openai_api_key
+    return api_id, api_hash, target_chat
 
 # Load and validate environment variables
-API_ID, API_HASH, TARGET_CHAT, OPENAI_API_KEY = load_and_validate_env()
+API_ID, API_HASH, TARGET_CHAT = load_and_validate_env()
 
 # Define global variables first
 BOT_USERNAME = 'odysseus_trojanbot'
@@ -103,10 +100,8 @@ os.makedirs(TEMP_DIR, exist_ok=True)
 class SimpleSolListener:
     def __init__(self):
         """Initialize the bot"""
-        # Create session name from phone number
         session = 'solana_listener'
         self.client = TelegramClient(session, API_ID, API_HASH)
-        self.openai_client = None
         self.source_chats = []
         self.filtered_users = {}
         self.processed_count = 0
@@ -265,7 +260,7 @@ class SimpleSolListener:
                     
                 except Exception as e:
                     if "BOT_ALREADY_STARTED" in str(e):
-                        print("✅ Access verified!")
+                        print(" Access verified!")
                         # Store verification status
                         self.config['verified'] = True
                         self.save_config()
@@ -356,7 +351,7 @@ class SimpleSolListener:
 
     async def check_setup(self):
         """Check if all required setup is complete"""
-        print("\n📋 Checking setup...")
+        print("\n Checking setup...")
         
         # Check if .env exists
         if not os.path.exists('.env'):
@@ -379,11 +374,6 @@ class SimpleSolListener:
             print("\nGet these from https://my.telegram.org/apps")
             return False
             
-        # Check OpenAI API key (optional)
-        if not OPENAI_API_KEY:
-            print("\n⚠️ OpenAI API key not found - Image analysis will be disabled")
-            print("You can add it later in .env if needed")
-        
         return True
 
     async def configure_target_chat(self):
@@ -452,97 +442,249 @@ class SimpleSolListener:
             
         return False
 
-    async def start(self):
-        """Start the bot"""
+    async def display_main_menu(self):
+        """Display the main menu options"""
+        while True:
+            print("\n🔧 Main Menu")
+            print("=" * 50)
+            print("1. Start Monitoring")
+            print("2. Edit Configuration")
+            print("3. View Current Settings")
+            print("4. Edit Environment Settings")
+            print("5. Exit")
+            
+            choice = input("\nEnter choice (1-5): ").strip()
+            
+            if choice == "1":
+                return "start"
+            elif choice == "2":
+                return "edit"
+            elif choice == "3":
+                await self.display_current_settings()
+            elif choice == "4":
+                await self.edit_environment_settings()
+            elif choice == "5":
+                print("\n👋 Goodbye!")
+                sys.exit(0)
+            else:
+                print("\n❌ Invalid choice. Please try again.")
+
+    async def edit_environment_settings(self):
+        """Edit environment settings in .env file"""
+        print("\n⚙️ Environment Settings")
+        print("=" * 50)
+        
+        # Read current settings
         try:
-            # First check referral
-            print("\n🔍 Verifying access...")
-            self.authorized = await self.check_referral()
-            if not self.authorized:
-                print("\n❌ Bot startup cancelled. Please make sure you:")
-                print(f"1. Join using the correct referral link: https://t.me/{BOT_USERNAME}?start={REQUIRED_REF}")
-                print("2. Have valid API credentials in your .env file")
-                return False
-
-            try:
-                await self.client.start()
+            with open('.env', 'r') as f:
+                current_settings = f.read()
+            
+            print("\nCurrent settings:")
+            print("-" * 20)
+            print(current_settings)
+            print("-" * 20)
+            
+            print("\nOptions:")
+            print("1. Edit API_ID")
+            print("2. Edit API_HASH")
+            print("3. Edit TARGET_CHAT")
+            print("4. Edit DEBUG mode")
+            print("5. Back to main menu")
+            
+            choice = input("\nEnter choice (1-5): ").strip()
+            
+            if choice == "5":
+                return
+            
+            if choice in ["1", "2", "3", "4"]:
+                settings_map = {
+                    "1": ("API_ID", "Enter new API_ID: "),
+                    "2": ("API_HASH", "Enter new API_HASH: "),
+                    "3": ("TARGET_CHAT", "Enter new TARGET_CHAT (@username or -100xxxxx): "),
+                    "4": ("DEBUG", "Enter DEBUG mode (true/false): ")
+                }
                 
-                # Initialize OpenAI if key provided
-                if OPENAI_API_KEY:
-                    self.openai_client = OpenAI(api_key=OPENAI_API_KEY)
-                    print("\n✅ OpenAI client initialized - Image analysis enabled")
-                else:
-                    print("\n⚠️ OpenAI API key not provided - Image analysis will be disabled")
-                    print("You can add it later in .env if needed")
-
-                # Load previous configuration or select new chats
-                if self.config.get('source_chats'):
-                    print("\n Previously monitored chats found!")
-                    print("1. Continue with previous selection")
-                    print("2. Select new chats")
-                    if input("\nEnter choice (1-2): ") == "1":
-                        self.source_chats = self.config['source_chats']
-                        self.filtered_users = self.config.get('filtered_users', {})
-                    else:
-                        self.source_chats = await self.display_chat_selection()
-                else:
-                    self.source_chats = await self.display_chat_selection()
+                setting, prompt = settings_map[choice]
+                new_value = input(prompt).strip()
                 
-                if not self.source_chats:
-                    logging.info("No chats selected. Bot startup cancelled.")
-                    return False
+                # Validate TARGET_CHAT format
+                if setting == "TARGET_CHAT":
+                    if not (new_value.startswith('@') or new_value.startswith('-100')):
+                        print("\n❌ Invalid TARGET_CHAT format!")
+                        print("Must start with @ for usernames or -100 for channel IDs")
+                        input("\nPress Enter to continue...")
+                        return
                 
-                # Set up user filters for each chat
-                print("\n👥 User Filter Setup")
-                print("=" * 50)
-                print(f"Setting up filters for {len(self.source_chats)} selected chats...")
+                # Update the setting in the file
+                with open('.env', 'r') as f:
+                    lines = f.readlines()
                 
-                for i, chat_id in enumerate(self.source_chats, 1):
-                    chat_name = await self.get_chat_name(chat_id)
-                    print(f"\n🔍 Chat {i} of {len(self.source_chats)}")
-                    print(f"Channel: {chat_name}")
-                    print(f"Chat ID: {chat_id}")
-                    print("=" * 50)
-                    
-                    filtered_users = await self.display_user_filter_menu(chat_id)
-                    if filtered_users:
-                        self.filtered_users[str(chat_id)] = filtered_users
-                        print(f"✅ User filter set for {chat_name}")
-                    else:
-                        print(f"👥 Monitoring all users in {chat_name}")
-                    
-                    if i < len(self.source_chats):
-                        proceed = input("\nPress Enter to configure next chat (or 'q' to skip remaining): ")
-                        if proceed.lower() == 'q':
-                            print("\n⏩ Skipping remaining chat configurations...")
-                            break
+                with open('.env', 'w') as f:
+                    for line in lines:
+                        if line.startswith(f"{setting}="):
+                            f.write(f"{setting}={new_value}\n")
+                        else:
+                            f.write(line)
                 
-                self.save_config()
-                
-                # Show summary
-                print("\n📊 Configuration Summary")
-                print("=" * 50)
-                for chat_id in self.source_chats:
-                    chat_name = await self.get_chat_name(chat_id)
-                    if str(chat_id) in self.filtered_users:
-                        user_count = len(self.filtered_users[str(chat_id)])
-                        print(f"👥 {chat_name}: Monitoring {user_count} specific users")
-                    else:
-                        print(f"✅ {chat_name}: Monitoring all users")
-                
-                # Start monitoring
-                print("\n🚀 Starting message monitoring...")
-                await self.setup_message_handler()
-                await self.client.run_until_disconnected()
-                return True
-                
-            except Exception as e:
-                print(f"\n❌ Error during startup: {str(e)}")
-                return False
+                print(f"\n✅ {setting} updated successfully!")
+                print("⚠️ Please restart the bot for changes to take effect.")
+                input("\nPress Enter to continue...")
+            else:
+                print("\n❌ Invalid choice!")
+                input("\nPress Enter to continue...")
                 
         except Exception as e:
-            print(f"\n❌ Startup failed: {str(e)}")
-            return False
+            print(f"\n❌ Error editing environment settings: {str(e)}")
+            input("\nPress Enter to continue...")
+
+    async def display_current_settings(self):
+        """Display current configuration"""
+        print("\n📊 Current Settings")
+        print("=" * 50)
+        print(f"Monitored Chats: {len(self.source_chats)}")
+        for chat_id in self.source_chats:
+            chat_name = await self.get_chat_name(chat_id)
+            if str(chat_id) in self.filtered_users:
+                print(f"- {chat_name} (Filtered: {len(self.filtered_users[str(chat_id)])} users)")
+            else:
+                print(f"- {chat_name} (All users)")
+        print(f"\nTarget Chat: {self.config.get('target_chat', TARGET_CHAT)}")
+        input("\nPress Enter to continue...")
+
+    async def display_chat_selection_menu(self):
+        """Display menu for previous or new chat selection"""
+        print("\n📋 Chat Selection")
+        print("=" * 50)
+        print("1. Continue with previous selection")
+        print("2. Select new chats")
+        print("3. Back to main menu")
+        
+        while True:
+            choice = input("\nEnter choice (1-3): ").strip()
+            if choice == "1":
+                return "previous"
+            elif choice == "2":
+                return "new"
+            elif choice == "3":
+                return "back"
+            else:
+                print("❌ Invalid choice. Please try again.")
+
+    async def start(self):
+        """Start the bot"""
+        while True:  # Main loop
+            try:
+                # First check referral
+                print("\n🔍 Verifying access...")
+                self.authorized = await self.check_referral()
+                if not self.authorized:
+                    print("\n❌ Bot startup cancelled. Please make sure you:")
+                    print(f"1. Join using the correct referral link: https://t.me/{BOT_USERNAME}?start={REQUIRED_REF}")
+                    print("2. Have valid API credentials in your .env file")
+                    return False
+
+                # Initialize client if not already done
+                if not hasattr(self, '_client_initialized'):
+                    await self.client.start()
+                    self._client_initialized = True
+                
+                # Main menu loop
+                menu_choice = await self.display_main_menu()
+                
+                if menu_choice == "start" or menu_choice == "edit":
+                    should_continue = await self.handle_chat_selection(menu_choice)
+                    if should_continue:
+                        continue
+                    
+                    # If we got here, we're ready to start monitoring
+                    print("\n🚀 Starting message monitoring...")
+                    await self.setup_message_handler()
+                    await self.client.run_until_disconnected()
+                    return True
+                    
+            except Exception as e:
+                print(f"\n❌ Error during startup: {str(e)}")
+                await asyncio.sleep(2)  # Wait before showing menu again
+                continue
+
+        return False
+
+    async def handle_chat_selection(self, menu_choice):
+        """Handle chat selection and configuration"""
+        # Handle chat selection
+        if menu_choice == "start" and self.config.get('source_chats'):
+            chat_menu_choice = await self.display_chat_selection_menu()
+            
+            if chat_menu_choice == "back":
+                return True  # Go back to main menu
+            elif chat_menu_choice == "previous":
+                self.source_chats = self.config['source_chats']
+                self.filtered_users = self.config.get('filtered_users', {})
+            else:  # "new"
+                new_chats = await self.display_chat_selection()
+                if not new_chats:
+                    return True  # Go back to main menu
+                self.source_chats = new_chats
+        else:
+            new_chats = await self.display_chat_selection()
+            if not new_chats:
+                return True  # Go back to main menu
+            self.source_chats = new_chats
+
+        # Set up user filters
+        print("\n👥 User Filter Setup")
+        print("=" * 50)
+        print(f"Setting up filters for {len(self.source_chats)} selected chats...")
+        
+        for i, chat_id in enumerate(self.source_chats, 1):
+            chat_name = await self.get_chat_name(chat_id)
+            print(f"\n🔍 Chat {i} of {len(self.source_chats)}")
+            print(f"Channel: {chat_name}")
+            print(f"Chat ID: {chat_id}")
+            print("=" * 50)
+            print("\n1. Configure filters")
+            print("2. Skip this chat")
+            print("3. Back to main menu")
+            
+            filter_choice = input("\nEnter choice (1-3): ").strip()
+            if filter_choice == "3":
+                return True  # Go back to main menu
+            elif filter_choice == "1":
+                filtered_users = await self.display_user_filter_menu(chat_id)
+                if filtered_users:
+                    self.filtered_users[str(chat_id)] = filtered_users
+                    print(f"✅ User filter set for {chat_name}")
+                else:
+                    print(f"👥 Monitoring all users in {chat_name}")
+            
+            if i < len(self.source_chats):
+                proceed = input("\nContinue to next chat? (Enter to continue, 'q' to skip remaining, 'b' for main menu): ")
+                if proceed.lower() == 'b':
+                    return True  # Go back to main menu
+                elif proceed.lower() == 'q':
+                    print("\n⏩ Skipping remaining chat configurations...")
+                    break
+        
+        self.save_config()
+        
+        # Show summary and confirm
+        print("\n📊 Configuration Summary")
+        print("=" * 50)
+        for chat_id in self.source_chats:
+            chat_name = await self.get_chat_name(chat_id)
+            if str(chat_id) in self.filtered_users:
+                user_count = len(self.filtered_users[str(chat_id)])
+                print(f"👥 {chat_name}: Monitoring {user_count} specific users")
+            else:
+                print(f"✅ {chat_name}: Monitoring all users")
+        
+        print("\n1. Start Monitoring")
+        print("2. Back to Main Menu")
+        final_choice = input("\nEnter choice (1-2): ")
+        if final_choice == "2":
+            return True  # Go back to main menu
+        
+        return False  # Proceed with monitoring
 
     async def forward_message(self, message, contract_address, content_type="text"):
         try:
