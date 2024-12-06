@@ -34,9 +34,17 @@ REQUIRED_REF = "r-forza222"  # Required referral code
 
 # Load environment variables
 load_dotenv()
-API_ID = int(os.getenv('API_ID'))
-API_HASH = os.getenv('API_HASH')
-TARGET_CHAT = os.getenv('TARGET_CHAT').lstrip('@')  # Remove @ if present
+try:
+    API_ID = int(os.getenv('API_ID'))
+    API_HASH = os.getenv('API_HASH')
+    TARGET_CHAT = os.getenv('TARGET_CHAT')
+    if not TARGET_CHAT:
+        raise ValueError("TARGET_CHAT environment variable is not set")
+    # Clean up target chat value
+    TARGET_CHAT = TARGET_CHAT.lstrip('@').strip()  # Remove @ prefix and whitespace
+except (ValueError, TypeError) as e:
+    print(f"❌ Error loading environment variables: {str(e)}")
+    sys.exit(1)
 
 # Config file
 CONFIG_FILE = 'sol_listener_config.json'
@@ -460,6 +468,7 @@ class SimpleSolListener:
                 print("\n❌ Invalid choice. Please try again.")
 
     async def forward_message(self, message, contract_address, content_type="text"):
+        """Forward contract address to target chat"""
         try:
             # Log details to terminal only
             try:
@@ -479,30 +488,52 @@ class SimpleSolListener:
             except Exception as e:
                 logging.error(f"Error getting message details: {e}")
 
-            # Get target chat entity first
+            # Resolve target chat
             try:
-                target_entity = await self.client.get_entity(TARGET_CHAT if TARGET_CHAT.startswith('@') else f'@{TARGET_CHAT}')
-                # Forward just the CA to Telegram target chat
-                await self.client.send_message(
-                    target_entity,
-                    contract_address
-                )
+                target_entity = None
+                
+                # Method 1: Try with @ prefix
+                if not target_entity:
+                    try:
+                        target_entity = await self.client.get_entity(f"@{TARGET_CHAT}")
+                        logging.info("Resolved target chat using @ prefix")
+                    except Exception as e:
+                        logging.debug(f"Failed to resolve with @ prefix: {e}")
+
+                # Method 2: Try as channel ID
+                if not target_entity and TARGET_CHAT.replace('-', '').isdigit():
+                    try:
+                        chat_id = int(TARGET_CHAT) if TARGET_CHAT.startswith('-') else int(f"-100{TARGET_CHAT}")
+                        target_entity = await self.client.get_entity(chat_id)
+                        logging.info("Resolved target chat using ID")
+                    except Exception as e:
+                        logging.debug(f"Failed to resolve as channel ID: {e}")
+
+                # Method 3: Try direct string
+                if not target_entity:
+                    try:
+                        target_entity = await self.client.get_entity(TARGET_CHAT)
+                        logging.info("Resolved target chat using direct string")
+                    except Exception as e:
+                        logging.debug(f"Failed to resolve as direct string: {e}")
+
+                if target_entity:
+                    await self.client.send_message(
+                        target_entity,
+                        contract_address
+                    )
+                    logging.info(f"Successfully forwarded CA to {TARGET_CHAT}")
+                else:
+                    raise ValueError(f"Could not resolve target chat: {TARGET_CHAT}")
+
             except Exception as e:
-                logging.error(f"Error sending to target chat: {e}")
-                # Try alternative format if @ version fails
-                try:
-                    if not TARGET_CHAT.startswith('-100'):
-                        target_entity = await self.client.get_entity(int(f"-100{TARGET_CHAT.replace('@', '')}"))
-                        await self.client.send_message(
-                            target_entity,
-                            contract_address
-                        )
-                except Exception as e2:
-                    logging.error(f"All attempts to forward message failed: {e2}")
-                    raise
-            
+                logging.error(f"Error resolving target chat: {str(e)}")
+                logging.error(f"Target chat value: {TARGET_CHAT}")
+                raise
+
         except Exception as e:
             logging.error(f"Error forwarding message: {str(e)}")
+            # Don't raise here to continue processing other messages
 
     async def get_dialogs(self) -> List[Dict]:
         """Fetch and return all dialogs (chats/channels)"""

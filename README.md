@@ -10,6 +10,7 @@ A Telegram bot that monitors specified channels for Solana token contract addres
 - Health monitoring and statistics
 - Session persistence
 - Configurable forwarding to target channel
+- Environment settings editor
 
 ## Prerequisites
 
@@ -39,7 +40,7 @@ cp .env.sample .env
 # Required
 API_ID=your_api_id
 API_HASH=your_api_hash
-TARGET_CHAT=odysseus_trojanbot
+TARGET_CHAT=@your_channel  # Use @username or -100xxxxx format
 
 # Optional
 DEBUG=false
@@ -52,7 +53,14 @@ DEBUG=false
 python main.py
 ```
 
-2. First-time Setup:
+2. Main Menu Options:
+   - Start Monitoring: Begin monitoring channels
+   - Edit Configuration: Modify channel and filter settings
+   - View Current Settings: Display current configuration
+   - Edit Environment Settings: Modify .env file settings
+   - Exit: Close the bot
+
+3. First-time Setup:
    - Verify access through @odysseus_trojanbot with referral code
    - Enter your phone number (if not previously authenticated)
    - Enter Telegram verification code
@@ -60,7 +68,7 @@ python main.py
    - Select channels to monitor
    - Configure user filters for each channel (optional)
 
-3. The bot will then:
+4. The bot will then:
    - Monitor selected channels
    - Apply user filters if configured
    - Detect and forward Solana contract addresses
@@ -73,7 +81,7 @@ Contains API credentials and basic settings:
 ```ini
 API_ID=your_api_id
 API_HASH=your_api_hash
-TARGET_CHAT=odysseus_trojanbot
+TARGET_CHAT=@your_channel  # Use @username or -100xxxxx format
 DEBUG=false
 ```
 
@@ -113,6 +121,14 @@ For each monitored channel, you can:
 2. Monitor specific users by ID
 3. Update filters during runtime
 
+## Environment Settings
+
+You can edit these settings through the bot menu:
+1. API_ID: Your Telegram API ID
+2. API_HASH: Your Telegram API Hash
+3. TARGET_CHAT: Destination for found tokens (@username or -100xxxxx format)
+4. DEBUG: Enable/disable debug mode
+
 ## Troubleshooting
 
 1. **Database Locked Error**
@@ -134,6 +150,11 @@ For each monitored channel, you can:
    - Verify selected channels in configuration
    - Check user filters if configured
    - Ensure bot has access to monitored channels
+
+5. **TARGET_CHAT Format Error**
+   - Ensure TARGET_CHAT starts with @ for usernames
+   - Or starts with -100 for channel IDs
+   - Use the Edit Environment Settings menu to fix
 
 ## Security Notes
 
