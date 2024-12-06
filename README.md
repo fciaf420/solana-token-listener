@@ -1,13 +1,15 @@
-# Simple Solana Listener
+# Telegram Solana Contract Address Listener
 
-A Telegram bot that monitors specified channels for Solana token contract addresses and provides detailed information about them.
+A Telegram bot that monitors specified channels for Solana token contract addresses and forwards them to a designated channel. Built with advanced filtering capabilities and health monitoring.
 
 ## Features
 
 - Monitor multiple Telegram channels/groups
-- Detect Solana token contract addresses
-- Fetch token information from blockchain
-- Forward findings to a designated channel
+- User-specific filtering for each monitored channel
+- Automatic Solana contract address detection
+- Health monitoring and statistics
+- Session persistence
+- Configurable forwarding to target channel
 - Optional image analysis with OpenAI
 
 ## Prerequisites
@@ -15,22 +17,17 @@ A Telegram bot that monitors specified channels for Solana token contract addres
 1. Python 3.8 or higher
 2. Telegram API credentials from https://my.telegram.org/apps
 3. A Telegram account
-4. (Optional) OpenAI API key for image analysis
+4. Access to @odysseus_trojanbot with referral code
+5. (Optional) OpenAI API key for image analysis
 
 ## Installation
 
-1. Clone the repository:
-```bash
-git clone https://github.com/yourusername/solana-token-listener.git
-cd solana-token-listener
-```
-
-2. Install required packages:
+1. Install required packages:
 ```bash
 pip install -r requirements.txt
 ```
 
-3. Set up environment:
+2. Set up environment:
 ```bash
 # Windows
 copy .env.sample .env
@@ -39,11 +36,17 @@ copy .env.sample .env
 cp .env.sample .env
 ```
 
-4. Edit `.env` with your credentials:
-- API_ID (from https://my.telegram.org/apps)
-- API_HASH (from https://my.telegram.org/apps)
-- TARGET_CHAT (will be configured on first run)
-- OPENAI_API_KEY (optional, for image analysis)
+3. Edit `.env` with your credentials:
+```ini
+# Required
+API_ID=your_api_id
+API_HASH=your_api_hash
+TARGET_CHAT=odysseus_trojanbot
+
+# Optional
+OPENAI_API_KEY=your_openai_key
+DEBUG=false
+```
 
 ## Usage
 
@@ -52,79 +55,98 @@ cp .env.sample .env
 python main.py
 ```
 
-2. On first run:
-- Enter your phone number
-- Enter the verification code sent to your Telegram
-- Select target chat for forwarding messages
+2. First-time Setup:
+   - Verify access through @odysseus_trojanbot with referral code
+   - Enter your phone number (if not previously authenticated)
+   - Enter Telegram verification code
+   - Enter 2FA password (if enabled)
+   - Select channels to monitor
+   - Configure user filters for each channel (optional)
 
-3. The bot will now:
-- Monitor specified channels
-- Detect Solana contract addresses
-- Forward findings to your target chat
+3. The bot will then:
+   - Monitor selected channels
+   - Apply user filters if configured
+   - Detect and forward Solana contract addresses
+   - Provide hourly health checks
 
-## Configuration
+## Configuration Files
 
-The `.env` file contains all configuration options:
-
+### .env
+Contains API credentials and basic settings:
 ```ini
-# Required
 API_ID=your_api_id
 API_HASH=your_api_hash
-TARGET_CHAT=@your_channel
-
-# Optional
-OPENAI_API_KEY=your_openai_key
+TARGET_CHAT=odysseus_trojanbot
+OPENAI_API_KEY=optional_key
 DEBUG=false
 ```
 
-## Backup & Restore
-
-To backup your configuration:
-```bash
-# Windows
-copy .env .env.backup
-
-# Linux/Mac
-cp .env .env.backup
+### sol_listener_config.json
+Stores bot configuration and session data:
+```json
+{
+    "source_chats": [channel_ids],
+    "filtered_users": {
+        "channel_id": [user_ids]
+    },
+    "session_string": "your_session_string",
+    "target_chat": "target_channel",
+    "verified": true
+}
 ```
 
-To restore from backup:
-```bash
-# Windows
-copy .env.backup .env
+### processed_tokens.json
+Maintains a list of processed token addresses to prevent duplicates.
 
-# Linux/Mac
-cp .env.backup .env
-```
+## Health Monitoring
+
+The bot provides hourly health checks with:
+- Connection status
+- Messages processed count
+- Tokens forwarded count
+- Unique tokens tracked
+- Uptime statistics
+- Number of monitored chats
+
+Health logs are stored in `logs/bot.log`
+
+## User Filtering
+
+For each monitored channel, you can:
+1. Monitor all users
+2. Monitor specific users by ID
+3. Update filters during runtime
 
 ## Troubleshooting
 
-1. **Authentication Failed**
-   - Verify API_ID and API_HASH in `.env`
-   - Try removing the session file and restart
+1. **Database Locked Error**
+   - Close all Python processes
+   - Delete the `solana_listener.session` file
+   - Restart the bot
 
-2. **Can't Access Channel**
-   - Ensure you're a member of the channel
-   - Check if TARGET_CHAT is correct
+2. **Authentication Failed**
+   - Verify API credentials in `.env`
+   - Check referral access with @odysseus_trojanbot
+   - Clear session files and restart
 
-3. **No Contract Addresses Found**
-   - Verify the channels you're monitoring
-   - Check if messages contain valid Solana addresses
+3. **Access Verification Failed**
+   - Ensure you've used the correct referral link
+   - Verify bot interaction history
+   - Check configuration in `sol_listener_config.json`
 
-## Contributing
+4. **No Messages Being Processed**
+   - Verify selected channels in configuration
+   - Check user filters if configured
+   - Ensure bot has access to monitored channels
 
-Pull requests are welcome! For major changes:
-1. Fork the repository
-2. Create a feature branch
-3. Commit your changes
-4. Push to your branch
-5. Open a Pull Request
+## Security Notes
 
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
+- Never share your session string or API credentials
+- Keep your `.env` and configuration files secure
+- Regularly backup your configuration files
+- Monitor the health checks for unusual activity
 
 ## Disclaimer
 
-This bot is for educational purposes only. Always verify contract addresses from trusted sources before interacting with them.
+This bot is for monitoring purposes only. Always verify contract addresses from trusted sources before interacting with them.
   

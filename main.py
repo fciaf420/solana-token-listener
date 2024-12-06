@@ -112,6 +112,9 @@ class SimpleSolListener:
         self.processed_count = 0
         self.forwarded_count = 0
         self.authorized = False
+        self.available_chats = []
+        self.dialogs_cache = {}
+        self.start_time = time.time()
         
         # Initialize necessary files and directories
         print("\n📁 Initializing file structure...")
@@ -641,6 +644,128 @@ class SimpleSolListener:
         finally:
             self.save_processed_tokens()
             await self.client.disconnect()
+
+    async def get_chat_name(self, chat_id):
+        """Get chat name from ID"""
+        try:
+            entity = await self.client.get_entity(int(chat_id))
+            return entity.title
+        except Exception as e:
+            return f"Chat {chat_id}"
+
+    async def display_chat_selection(self):
+        """Display and handle chat selection"""
+        print("\n📋 Select chats to monitor")
+        print("=" * 50)
+        
+        try:
+            # Get dialogs
+            print("\nFetching available chats...")
+            self.available_chats = []
+            async for dialog in self.client.iter_dialogs():
+                if dialog.is_channel or dialog.is_group:
+                    self.available_chats.append({
+                        'id': dialog.id,
+                        'title': dialog.title,
+                        'type': 'channel' if dialog.is_channel else 'group'
+                    })
+            
+            if not self.available_chats:
+                print("\n❌ No channels or groups found!")
+                return []
+            
+            # Display available chats
+            for i, chat in enumerate(self.available_chats, 1):
+                print(f"{i}. {chat['title']} ({chat['type']})")
+            
+            selected_chats = []
+            while True:
+                choice = input("\nEnter chat numbers to monitor (comma-separated) or 'q' to finish: ")
+                if choice.lower() == 'q':
+                    break
+                
+                try:
+                    indices = [int(x.strip()) for x in choice.split(',')]
+                    for idx in indices:
+                        if 1 <= idx <= len(self.available_chats):
+                            chat_id = self.available_chats[idx-1]['id']
+                            if chat_id not in selected_chats:
+                                selected_chats.append(chat_id)
+                                print(f"✅ Added: {self.available_chats[idx-1]['title']}")
+                        else:
+                            print(f"❌ Invalid number: {idx}")
+                except ValueError:
+                    print("❌ Please enter valid numbers separated by commas")
+            
+            return selected_chats
+        
+        except Exception as e:
+            print(f"\n❌ Error during chat selection: {str(e)}")
+            return []
+
+    async def display_user_filter_menu(self, chat_id):
+        """Display and handle user filter selection"""
+        try:
+            print("\n👥 User Filter Options:")
+            print("1. Monitor all users")
+            print("2. Monitor specific users")
+            
+            choice = input("\nEnter choice (1-2): ").strip()
+            
+            if choice == "1":
+                return []
+            elif choice == "2":
+                filtered_users = []
+                print("\nEnter user IDs to monitor (one per line)")
+                print("Press Enter twice when done")
+                
+                while True:
+                    user_input = input().strip()
+                    if not user_input:
+                        break
+                    try:
+                        user_id = int(user_input)
+                        filtered_users.append(user_id)
+                    except ValueError:
+                        print("❌ Please enter valid numeric user IDs")
+                
+                return filtered_users
+            else:
+                print("❌ Invalid choice")
+                return []
+                
+        except Exception as e:
+            print(f"❌ Error setting up user filter: {str(e)}")
+            return []
+
+    async def setup_message_handler(self):
+        """Set up the message handler"""
+        @self.client.on(events.NewMessage(chats=self.source_chats))
+        async def message_handler(event):
+            try:
+                # Increment processed count
+                self.processed_count += 1
+                
+                # Check if message is from a filtered user
+                chat_id = str(event.chat_id)
+                if chat_id in self.filtered_users and self.filtered_users[chat_id]:
+                    if event.sender_id not in self.filtered_users[chat_id]:
+                        return
+                
+                # Extract Solana contract address (simple regex for testing)
+                message_text = event.message.text or ""
+                matches = re.findall(r'[1-9A-HJ-NP-Za-km-z]{32,44}', message_text)
+                
+                for contract_address in matches:
+                    if await self.is_token_processed(contract_address):
+                        continue
+                        
+                    await self.forward_message(event.message, contract_address)
+                    await self.add_processed_token(contract_address)
+                    self.forwarded_count += 1
+                    
+            except Exception as e:
+                logging.error(f"Error processing message: {str(e)}")
 
 async def main():
     bot = SimpleSolListener()
