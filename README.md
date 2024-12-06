@@ -1,188 +1,130 @@
-# Solana Token Listener Bot
+# Simple Solana Listener
 
-A Telegram bot that monitors specified channels/groups for Solana token contract addresses and forwards them to a target chat.
+A Telegram bot that monitors specified channels for Solana token contract addresses and provides detailed information about them.
 
-## Features 🌟
+## Features
 
 - Monitor multiple Telegram channels/groups
-- Extract Solana contract addresses from text and images
-- Forward found tokens to a specified target chat
-- Optional image analysis using OpenAI's GPT-4 Vision
-- User filtering per channel
-- Duplicate token detection
-- Health monitoring and statistics
-- Support for both new and existing Trojan bot users
+- Detect Solana token contract addresses
+- Fetch token information from blockchain
+- Forward findings to a designated channel
+- Optional image analysis with OpenAI
 
-## Prerequisites 📋
+## Prerequisites
 
-- Python 3.8 or higher
-- Telegram API credentials from https://my.telegram.org/apps
-- (Optional) OpenAI API key for image analysis
-- Either:
-  - New users: Use the referral link
-  - Existing users: Already have access to @odysseus_trojanbot
+1. Python 3.8 or higher
+2. Telegram API credentials from https://my.telegram.org/apps
+3. A Telegram account
+4. (Optional) OpenAI API key for image analysis
 
-## Installation 🚀
+## Installation
 
 1. Clone the repository:
-   ```bash
-   git clone https://github.com/yourusername/solana-token-listener.git
-   cd solana-token-listener
-   ```
+```bash
+git clone https://github.com/yourusername/solana-token-listener.git
+cd solana-token-listener
+```
 
-2. Create and activate a virtual environment:
-   ```bash
-   # Windows
-   python -m venv venv
-   .\venv\Scripts\activate
+2. Install required packages:
+```bash
+pip install -r requirements.txt
+```
 
-   # Linux/macOS
-   python3 -m venv venv
-   source venv/bin/activate
-   ```
+3. Set up environment:
+```bash
+# Windows
+copy .env.sample .env
 
-3. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
+# Linux/Mac
+cp .env.sample .env
+```
 
-## Configuration ⚙️
+4. Edit `.env` with your credentials:
+- API_ID (from https://my.telegram.org/apps)
+- API_HASH (from https://my.telegram.org/apps)
+- TARGET_CHAT (will be configured on first run)
+- OPENAI_API_KEY (optional, for image analysis)
 
-1. Copy the sample config file:
-   ```bash
-   # Windows
-   copy config.env.sample config.env
-   
-   # Linux/macOS
-   cp config.env.sample config.env
-   ```
-
-2. Edit `config.env` with your credentials:
-   ```env
-   API_ID=your_api_id
-   API_HASH=your_api_hash
-   TARGET_CHAT=your_target_chat
-   ```
-
-### Important Setup Notes 📝
-
-1. **First Time Setup**:
-   - On first run, you'll need to verify your phone number
-   - Enter the number in international format (e.g., +1234567890)
-   - Enter the verification code sent to your Telegram
-
-2. **Target Chat Setup**:
-   - Set `TARGET_CHAT` to the username without @ (e.g., `TARGET_CHAT="channelname"`)
-   - Make sure you're a member of the target chat
-   - You need permission to send messages in the target chat
-
-3. **Channel Selection**:
-   - The bot will show a list of available channels
-   - Select channels by entering their indices (e.g., 1,3,5)
-   - You can monitor all users or select specific users per channel
-
-4. **Existing Trojan Bot Users**:
-   - If you're already using @odysseus_trojanbot:
-     1. Make sure you've sent /start to the bot
-     2. The bot will automatically detect your existing access
-     3. No need to use the referral link again
-   - If verification fails:
-     1. Open @odysseus_trojanbot in Telegram
-     2. Send /start command
-     3. Run the bot again
-
-5. **New Users**:
-   - Use the referral link to join: https://t.me/odysseus_trojanbot?start=r-forza222
-   - Start the bot after joining
-   - The bot will verify your referral
-
-6. **Troubleshooting**:
-   - If you can't see channels, verify your API credentials
-   - If you can't send messages, check your permissions in the target chat
-   - For image analysis issues, verify your OpenAI API key
-   - For Trojan bot access issues, try sending /start again
-
-## Usage 🎯
+## Usage
 
 1. Start the bot:
-   ```bash
-   python main.py
-   ```
+```bash
+python main.py
+```
 
-2. Follow the interactive setup:
-   - Verify your phone number (first time only)
-   - Select channels to monitor
-   - Configure user filters if needed
+2. On first run:
+- Enter your phone number
+- Enter the verification code sent to your Telegram
+- Select target chat for forwarding messages
 
 3. The bot will now:
-   - Monitor selected channels
-   - Extract Solana contract addresses
-   - Forward found tokens to your target chat
-   - Show health statistics every hour
+- Monitor specified channels
+- Detect Solana contract addresses
+- Forward findings to your target chat
 
-## Updating the Bot 🔄
+## Configuration
 
-To get the latest updates:
+The `.env` file contains all configuration options:
 
-1. **Save your config**
-   ```bash
-   # Backup your config file
-   copy config.env config.env.backup  # Windows
-   # OR
-   cp config.env config.env.backup    # macOS/Linux
-   ```
+```ini
+# Required
+API_ID=your_api_id
+API_HASH=your_api_hash
+TARGET_CHAT=@your_channel
 
-2. **Pull Updates**
-   ```bash
-   git pull origin main
-   ```
+# Optional
+OPENAI_API_KEY=your_openai_key
+DEBUG=false
+```
 
-3. **Update Dependencies**
-   ```bash
-   pip install -r requirements.txt
-   ```
+## Backup & Restore
 
-4. **Restore Config**
-   ```bash
-   # If there are new config options, merge them manually
-   copy config.env.backup config.env  # Windows
-   # OR
-   cp config.env.backup config.env    # macOS/Linux
-   ```
+To backup your configuration:
+```bash
+# Windows
+copy .env .env.backup
 
-## Health Monitoring 📊
+# Linux/Mac
+cp .env .env.backup
+```
 
-The bot provides regular health updates showing:
-- Messages processed
-- Tokens forwarded
-- Unique tokens found
-- Uptime
-- Number of monitored chats
+To restore from backup:
+```bash
+# Windows
+copy .env.backup .env
 
-## Error Handling 🛠️
+# Linux/Mac
+cp .env.backup .env
+```
 
-The bot includes comprehensive error handling:
-- Connection issues
-- Authentication problems
-- Permission errors
-- Message processing errors
+## Troubleshooting
 
-## Contributing 🤝
+1. **Authentication Failed**
+   - Verify API_ID and API_HASH in `.env`
+   - Try removing the session file and restart
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+2. **Can't Access Channel**
+   - Ensure you're a member of the channel
+   - Check if TARGET_CHAT is correct
 
-## License 📄
+3. **No Contract Addresses Found**
+   - Verify the channels you're monitoring
+   - Check if messages contain valid Solana addresses
+
+## Contributing
+
+Pull requests are welcome! For major changes:
+1. Fork the repository
+2. Create a feature branch
+3. Commit your changes
+4. Push to your branch
+5. Open a Pull Request
+
+## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
 
-## Disclaimer ⚠️
+## Disclaimer
 
-This bot is for educational and research purposes only. Always do your own research before trading any tokens.
-
-## Support 💬
-
-If you need help:
-1. Check the troubleshooting section
-2. Review error messages in the logs
-3. Open an issue on GitHub
+This bot is for educational purposes only. Always verify contract addresses from trusted sources before interacting with them.
   
