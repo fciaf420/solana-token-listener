@@ -18,7 +18,7 @@ from dotenv import load_dotenv
 # Define global variables first
 API_ID = None
 API_HASH = None
-TARGET_CHAT = os.getenv('TARGET_CHAT')  # Load from env but don't modify
+TARGET_CHAT = None
 BOT_USERNAME = 'odysseus_trojanbot'
 REQUIRED_REF = 'r-forza222'
 
@@ -28,6 +28,12 @@ load_dotenv('config.env')
 # Update global variables with environment values
 API_ID = os.getenv('API_ID')
 API_HASH = os.getenv('API_HASH')
+TARGET_CHAT = os.getenv('TARGET_CHAT')
+
+# Debug logging for environment variables
+logging.info(f"Loaded API_ID: {API_ID}")
+logging.info(f"Loaded API_HASH: {API_HASH}")
+logging.info(f"Loaded TARGET_CHAT: {TARGET_CHAT}")
 
 # Configure logging with platform-specific path
 log_dir = "logs"
@@ -348,53 +354,85 @@ class SimpleSolListener:
             try:
                 await self.client.connect()
                 print("✅ Successfully connected to Telegram")
+                
+                # Check if we need to sign in
+                if not await self.client.is_user_authorized():
+                    print("\n📱 First-time setup: Phone verification needed")
+                    phone = input("Enter your phone number (international format, e.g. +1234567890): ")
+                    try:
+                        code = await self.client.send_code_request(phone)
+                        verification_code = input("\n📲 Enter the verification code sent to your phone: ")
+                        await self.client.sign_in(phone, verification_code)
+                        print("✅ Successfully verified phone number!")
+                    except Exception as e:
+                        print("\n❌ Error during phone verification!")
+                        print(f"Error details: {str(e)}")
+                        return False
+                
+                print("✅ User authentication verified")
+                
+                # Check if target chat is configured
+                if not TARGET_CHAT:
+                    print("\n❌ Target chat not configured!")
+                    print("Please set TARGET_CHAT in config.env")
+                    return False
+                
+                print(f"\n🔍 Attempting to access target chat: {TARGET_CHAT}")
+                
+                # Try to resolve the target chat
+                try:
+                    # First try as a username
+                    try:
+                        target_entity = await self.client.get_entity(TARGET_CHAT)
+                    except ValueError:
+                        # If username fails, try as a channel ID
+                        if TARGET_CHAT.startswith('-100'):
+                            try:
+                                target_entity = await self.client.get_entity(int(TARGET_CHAT))
+                            except ValueError as e:
+                                print("\n❌ Invalid channel ID format!")
+                                print(f"Error: {str(e)}")
+                                return False
+                        else:
+                            print("\n❌ Could not resolve target chat!")
+                            print("Please make sure:")
+                            print("1. The chat/channel exists")
+                            print("2. You are a member of the chat/channel")
+                            return False
+                    
+                    print("✅ Target chat access verified")
+                    
+                    # Try to send a test message
+                    try:
+                        msg = await self.client.send_message(
+                            target_entity,
+                            "🔄 Bot setup test message - Verifying access..."
+                        )
+                        await msg.delete()  # Delete the test message
+                        print("✅ Successfully verified message sending!")
+                        return True
+                    except Exception as e:
+                        print("\n❌ Cannot send messages to target chat!")
+                        print("Please make sure:")
+                        print("1. You have permission to send messages")
+                        print("2. The chat/channel exists and you're a member")
+                        print(f"\nError details: {str(e)}")
+                        return False
+                        
+                except Exception as e:
+                    print("\n❌ Cannot access target chat!")
+                    print("Please make sure:")
+                    print(f"1. You have joined {TARGET_CHAT}")
+                    print("2. The chat/channel exists")
+                    print(f"\nError details: {str(e)}")
+                    return False
+                
             except Exception as e:
                 print("\n❌ Failed to connect to Telegram!")
                 print("Please check:")
                 print("1. You have created config.env file")
                 print("2. Your API_ID and API_HASH are correct in config.env")
                 print("3. Your internet connection is working")
-                print(f"\nError details: {str(e)}")
-                return False
-
-            print("\n🔍 Verifying bot access...")
-            try:
-                # First check if user can access the bot at all
-                bot_entity = await self.client.get_entity(BOT_USERNAME)
-                if not bot_entity:
-                    print(f"\n❌ Cannot access @{BOT_USERNAME}!")
-                    print(f"Please join: https://t.me/{BOT_USERNAME}?start={REQUIRED_REF}")
-                    return False
-                
-                print("✅ Bot access verified")
-                
-                # Check message history for any interaction
-                messages = []
-                async for message in self.client.iter_messages(BOT_USERNAME, limit=20):
-                    messages.append(message.message if message.message else "")
-                
-                # Look for referral code or existing bot usage
-                for msg in messages:
-                    # Check for our referral code
-                    if f"start={REQUIRED_REF}" in msg:
-                        print("✅ Referral link verified!")
-                        return True
-                    # Check for existing bot usage (common commands/responses)
-                    elif any(term in msg.lower() for term in ['/start', 'welcome to', 'bot activated', 'successfully']):
-                        print("✅ Existing bot user verified!")
-                        return True
-                
-                print("\n⚠️ No bot activation found!")
-                print("Please either:")
-                print(f"1. Use referral link: https://t.me/{BOT_USERNAME}?start={REQUIRED_REF}")
-                print("2. Or start the bot: Send /start to @" + BOT_USERNAME)
-                return False
-                
-            except Exception as e:
-                print("\n❌ Error checking bot access!")
-                print("Please make sure you've:")
-                print(f"1. Joined the bot: https://t.me/{BOT_USERNAME}?start={REQUIRED_REF}")
-                print("2. Started a chat with the bot")
                 print(f"\nError details: {str(e)}")
                 return False
             
@@ -580,7 +618,7 @@ class SimpleSolListener:
             filtered_users = await self.display_user_filter_menu(chat_id)
             if filtered_users:
                 self.filtered_users[str(chat_id)] = filtered_users
-                print(f"✅ User filter set for {chat_name}")
+                print(f"�� User filter set for {chat_name}")
             else:
                 print(f"👥 Monitoring all users in {chat_name}")
             
@@ -601,7 +639,7 @@ class SimpleSolListener:
                 chat_name = entity.title
                 if str(chat_id) in self.filtered_users:
                     user_count = len(self.filtered_users[str(chat_id)])
-                    print(f"�� {chat_name}: Monitoring {user_count} specific users")
+                    print(f" {chat_name}: Monitoring {user_count} specific users")
                 else:
                     print(f"✓ {chat_name}: Monitoring all users")
             except:
