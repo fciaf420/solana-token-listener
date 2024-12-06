@@ -1,23 +1,35 @@
 # Telegram Solana Contract Address Listener
 
-A Telegram bot that monitors specified channels for Solana token contract addresses and forwards them to a designated channel. Built with advanced filtering capabilities and health monitoring.
+A Telegram bot designed to help you find and auto-buy new Solana tokens. It monitors specified Telegram channels for Solana contract addresses and instantly forwards them to your target channel for automated trading. Perfect for catching new token launches and trading opportunities as soon as they appear.
+
+## Key Benefits
+- Instant detection of new Solana tokens from monitored channels
+- Automatic forwarding to your trading bot channel
+- Supports all major Solana token link formats (DexScreener, Birdeye, Jupiter, etc.)
+- Never miss a new token launch opportunity
 
 ## Features
-
-- Monitor multiple Telegram channels/groups
+- Monitor multiple Telegram channels/groups for new tokens
 - User-specific filtering for each monitored channel
-- Automatic Solana contract address detection
+- Automatic Solana contract address detection from various sources:
+  - DexScreener links
+  - Birdeye links
+  - Solscan links
+  - Jupiter swap links
+  - GMGN links
+  - Raw contract addresses
 - Health monitoring and statistics
 - Session persistence
-- Configurable forwarding to target channel
-- Environment settings editor
+- Configurable forwarding to your trading bot
 
 ## Prerequisites
 
 1. Python 3.8 or higher
 2. Telegram API credentials from https://my.telegram.org/apps
 3. A Telegram account
-4. Access to @odysseus_trojanbot with referral code
+4. Access to either:
+   - Primary Bot: @odysseus_trojanbot
+   - Backup Bot: @TradeonNovaBot
 
 ## Installation
 
@@ -55,13 +67,14 @@ python main.py
 
 2. Main Menu Options:
    - Start Monitoring: Begin monitoring channels
-   - Edit Configuration: Modify channel and filter settings
+   - Configure Channels: Modify channel and filter settings
    - View Current Settings: Display current configuration
-   - Edit Environment Settings: Modify .env file settings
    - Exit: Close the bot
 
 3. First-time Setup:
-   - Verify access through @odysseus_trojanbot with referral code
+   - Verify access through either:
+     - Primary Bot: @odysseus_trojanbot
+     - Backup Bot: @TradeonNovaBot
    - Enter your phone number (if not previously authenticated)
    - Enter Telegram verification code
    - Enter 2FA password (if enabled)
@@ -71,7 +84,13 @@ python main.py
 4. The bot will then:
    - Monitor selected channels
    - Apply user filters if configured
-   - Detect and forward Solana contract addresses
+   - Detect and forward Solana contract addresses from various sources:
+     - DexScreener links
+     - Birdeye links
+     - Solscan links
+     - Jupiter links
+     - GMGN links
+     - Raw contract addresses
    - Provide hourly health checks
 
 ## Configuration Files
