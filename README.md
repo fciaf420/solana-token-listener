@@ -52,7 +52,7 @@ cp .env.sample .env
 # Required
 API_ID=your_api_id
 API_HASH=your_api_hash
-TARGET_CHAT=@your_channel  # Use @username or -100xxxxx format
+TARGET_CHAT=your_channel  # Use channel username or -100xxxxx format
 
 # Optional
 DEBUG=false
@@ -100,7 +100,7 @@ Contains API credentials and basic settings:
 ```ini
 API_ID=your_api_id
 API_HASH=your_api_hash
-TARGET_CHAT=@your_channel  # Use @username or -100xxxxx format
+TARGET_CHAT=your_channel  # Use channel username or -100xxxxx format
 DEBUG=false
 ```
 
@@ -145,7 +145,7 @@ For each monitored channel, you can:
 You can edit these settings through the bot menu:
 1. API_ID: Your Telegram API ID
 2. API_HASH: Your Telegram API Hash
-3. TARGET_CHAT: Destination for found tokens (@username or -100xxxxx format)
+3. TARGET_CHAT: Destination for found tokens (channel username or -100xxxxx format)
 4. DEBUG: Enable/disable debug mode
 
 ## Troubleshooting
