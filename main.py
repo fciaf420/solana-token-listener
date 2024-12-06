@@ -27,45 +27,48 @@ if sys.platform == "win32":
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Bot Configuration
+BOT_USERNAME = "odysseus_trojanbot"
+REQUIRED_REF = "r-forza222"  # Required referral code
+
 def load_and_validate_env():
     """Load and validate environment variables"""
-    env_file = '.env'
-    if not Path(env_file).exists():
-        env_file = 'config.env'
-        if not Path(env_file).exists():
-            logger.error("❌ No .env or config.env file found!")
-            sys.exit(1)
-    
-    logger.info(f"📁 Loading environment from: {env_file}")
-    load_dotenv(env_file)
-    
-    # Validate required credentials
-    api_id = os.getenv('API_ID')
-    api_hash = os.getenv('API_HASH')
-    target_chat = os.getenv('TARGET_CHAT')
-    
-    # Validate API_ID
     try:
-        api_id = int(api_id)
-    except (TypeError, ValueError):
-        logger.error("❌ API_ID must be a valid integer!")
+        env_file = '.env'
+        if not Path(env_file).exists():
+            env_file = 'config.env'
+            if not Path(env_file).exists():
+                logger.error("❌ No .env or config.env file found!")
+                logger.info("Creating .env file with template...")
+                with open('.env', 'w') as f:
+                    f.write("API_ID=\nAPI_HASH=\nTARGET_CHAT=\nDEBUG=false\n")
+                logger.info("Please fill in your credentials in the .env file")
+                sys.exit(1)
+        
+        logger.info(f"📁 Loading environment from: {env_file}")
+        load_dotenv(env_file)
+        
+        # Validate required credentials
+        api_id = os.getenv('API_ID')
+        api_hash = os.getenv('API_HASH')
+        target_chat = os.getenv('TARGET_CHAT')
+        
+        if not api_id or not api_hash:
+            logger.error("❌ API credentials missing! Please get them from https://my.telegram.org/apps")
+            sys.exit(1)
+            
+        # Validate API_ID
+        try:
+            api_id = int(api_id)
+        except (TypeError, ValueError):
+            logger.error("❌ API_ID must be a valid integer!")
+            sys.exit(1)
+        
+        return api_id, api_hash, target_chat
+        
+    except Exception as e:
+        logger.error(f"❌ Error loading environment: {str(e)}")
         sys.exit(1)
-    
-    # Validate API_HASH
-    if not api_hash or len(api_hash) != 32:
-        logger.error("❌ API_HASH must be a 32-character string!")
-        sys.exit(1)
-    
-    # Validate TARGET_CHAT
-    if not target_chat:
-        logger.error("❌ TARGET_CHAT must be specified!")
-        sys.exit(1)
-    
-    logger.info("✅ Environment variables validated successfully")
-    logger.debug(f"Debug - API_ID: {api_id}")
-    logger.debug(f"Debug - TARGET_CHAT: {target_chat}")
-    
-    return api_id, api_hash, target_chat
 
 # Load and validate environment variables
 API_ID, API_HASH, TARGET_CHAT = load_and_validate_env()
@@ -220,21 +223,17 @@ class SimpleSolListener:
                     # Check for any previous interaction
                     has_history = len(messages) > 0
                     has_start = any('/start' in msg.lower() for msg in messages)
-                    has_referral = any(REQUIRED_REF in msg for msg in messages)
                     
-                    if has_history:
-                        if has_referral or has_start:
-                            print("✅ Access verified!")
-                            # Store verification status
-                            self.config['verified'] = True
-                            self.save_config()
-                            return True
-                        else:
-                            print("\n👋 Welcome back! Let's verify your access...")
-                    else:
-                        print("\n👋 Welcome! Let's get you set up...")
+                    # If there's any history with the bot, consider it verified
+                    if has_history or has_start:
+                        print("✅ Access verified - Existing bot user!")
+                        # Store verification status
+                        self.config['verified'] = True
+                        self.save_config()
+                        return True
                     
-                    # If no history or verification needed, guide user
+                    # If no history, guide user through referral process
+                    print("\n👋 Welcome! Let's get you set up...")
                     print("\n📱 Please complete these steps:")
                     print(f"1. Click this link: https://t.me/{BOT_USERNAME}?start={REQUIRED_REF}")
                     print("2. Click 'Start' in the Telegram bot chat")
@@ -244,7 +243,7 @@ class SimpleSolListener:
                     print("\n🔄 Verifying your access...")
                     # Check for new activation
                     async for message in self.client.iter_messages(bot_entity, limit=3):
-                        if message.message and (REQUIRED_REF in message.message or '/start' in message.message.lower()):
+                        if message.message and '/start' in message.message.lower():
                             print("✅ Access verified!")
                             # Store verification status
                             self.config['verified'] = True
@@ -260,7 +259,7 @@ class SimpleSolListener:
                     
                 except Exception as e:
                     if "BOT_ALREADY_STARTED" in str(e):
-                        print(" Access verified!")
+                        print("✅ Access verified - Bot already started!")
                         # Store verification status
                         self.config['verified'] = True
                         self.save_config()
