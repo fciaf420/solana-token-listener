@@ -41,15 +41,30 @@ BACKUP_BOT = {
 # Load environment variables
 load_dotenv()
 try:
-    API_ID = int(os.getenv('API_ID'))
+    api_id = os.getenv('API_ID')
+    if not api_id:
+        raise ValueError("API_ID environment variable is not set in .env file")
+    API_ID = int(api_id)
+    
     API_HASH = os.getenv('API_HASH')
+    if not API_HASH:
+        raise ValueError("API_HASH environment variable is not set in .env file")
+        
     TARGET_CHAT = os.getenv('TARGET_CHAT')
     if not TARGET_CHAT:
-        raise ValueError("TARGET_CHAT environment variable is not set")
+        raise ValueError("TARGET_CHAT environment variable is not set in .env file")
     # Clean up target chat value
     TARGET_CHAT = TARGET_CHAT.lstrip('@').strip()  # Remove @ prefix and whitespace
 except (ValueError, TypeError) as e:
-    print(f"❌ Error loading environment variables: {str(e)}")
+    print("\n❌ Error with environment variables:")
+    print("1. Make sure you have a .env file in the same directory as main.py")
+    print("2. Your .env file should contain:")
+    print("   API_ID=your_api_id_here")
+    print("   API_HASH=your_api_hash_here")
+    print("   TARGET_CHAT=target_chat_here")
+    print("\n3. API_ID should be a number")
+    print("4. Get API_ID and API_HASH from https://my.telegram.org")
+    print(f"\nSpecific error: {str(e)}")
     sys.exit(1)
 
 # Config file
