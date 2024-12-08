@@ -1,3 +1,11 @@
+"""
+Solana Token Listener Bot
+Version: 1.0.0
+
+A Telegram bot that monitors channels for Solana token contract addresses
+and forwards them to a target channel for automated trading.
+"""
+
 import asyncio
 import re
 from telethon import TelegramClient, events, functions, types
@@ -15,6 +23,8 @@ from pathlib import Path
 from dotenv import load_dotenv
 import sys
 
+__version__ = "1.0.0"
+
 # Fix Windows console encoding for emojis
 if sys.platform == "win32":
     import ctypes
@@ -22,10 +32,25 @@ if sys.platform == "win32":
     kernel32.SetConsoleCP(65001)
     kernel32.SetConsoleOutputCP(65001)
 
+# Use Path for cross-platform compatibility
+BASE_DIR = Path(__file__).parent
+CONFIG_FILE = BASE_DIR / 'sol_listener_config.json'
+TEMP_DIR = BASE_DIR / 'temp_images'
+ENV_FILE = BASE_DIR / '.env'
+LOGS_DIR = BASE_DIR / 'logs'
+
+# Create required directories
+os.makedirs(TEMP_DIR, exist_ok=True)
+os.makedirs(LOGS_DIR, exist_ok=True)
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout),
+        logging.FileHandler(LOGS_DIR / 'bot.log', encoding='utf-8')
+    ]
 )
 
 # Bot Configuration
@@ -39,7 +64,7 @@ BACKUP_BOT = {
 }
 
 # Load environment variables
-load_dotenv()
+load_dotenv(ENV_FILE)
 try:
     api_id = os.getenv('API_ID')
     if not api_id:
@@ -57,7 +82,7 @@ try:
     TARGET_CHAT = TARGET_CHAT.lstrip('@').strip()  # Remove @ prefix and whitespace
 except (ValueError, TypeError) as e:
     print("\n❌ Error with environment variables:")
-    print("1. Make sure you have a .env file in the same directory as main.py")
+    print(f"1. Make sure you have a .env file in: {ENV_FILE}")
     print("2. Your .env file should contain:")
     print("   API_ID=your_api_id_here")
     print("   API_HASH=your_api_hash_here")
@@ -67,25 +92,23 @@ except (ValueError, TypeError) as e:
     print(f"\nSpecific error: {str(e)}")
     sys.exit(1)
 
-# Config file
-CONFIG_FILE = 'sol_listener_config.json'
-
-# Temp directory for downloaded images
-TEMP_DIR = 'temp_images'
-os.makedirs(TEMP_DIR, exist_ok=True)
-
 class SimpleSolListener:
+    """Telegram bot for monitoring and forwarding Solana contract addresses"""
+    
     def __init__(self):
         """Initialize the bot with environment and file structure checks"""
+        self.version = __version__
+        print(f"\n🤖 Solana Token Listener v{self.version}")
+        
         print("\n🔍 Checking environment setup...")
         if not self._check_environment():
             raise Exception("Environment setup failed")
             
         print("\n📂 Setting up directory structure...")
-        required_dirs = ['logs', 'temp_images']
-        for dir_name in required_dirs:
-            os.makedirs(dir_name, exist_ok=True)
-            print(f"✓ {dir_name}/")
+        required_dirs = [TEMP_DIR, LOGS_DIR]
+        for dir_path in required_dirs:
+            os.makedirs(dir_path, exist_ok=True)
+            print(f"✓ {dir_path.name}/")
             
         print("\n📄 Checking configuration files...")
         self._initialize_config_files()
@@ -127,35 +150,36 @@ class SimpleSolListener:
     def _initialize_config_files(self):
         """Initialize required configuration files if they don't exist"""
         # Config file
-        if not os.path.exists('sol_listener_config.json'):
+        if not os.path.exists(CONFIG_FILE):
             print("✨ Creating new configuration file...")
             initial_config = {
                 'source_chats': [],
                 'filtered_users': {},
                 'session_string': None,
                 'verified': False,
-                'blacklisted_keywords': []  # Add blacklist for keywords
+                'blacklisted_keywords': []
             }
-            with open('sol_listener_config.json', 'w') as f:
+            with open(CONFIG_FILE, 'w') as f:
                 json.dump(initial_config, f, indent=4)
             print("✓ sol_listener_config.json")
         else:
             print("✓ sol_listener_config.json (existing)")
             
         # Processed tokens file
-        if not os.path.exists('processed_tokens.json'):
+        tokens_file = BASE_DIR / 'processed_tokens.json'
+        if not os.path.exists(tokens_file):
             print("✨ Creating processed tokens file...")
-            with open('processed_tokens.json', 'w') as f:
+            with open(tokens_file, 'w') as f:
                 json.dump([], f)
             print("✓ processed_tokens.json")
         else:
             print("✓ processed_tokens.json (existing)")
             
         # Environment file check
-        if not os.path.exists('.env'):
+        if not os.path.exists(ENV_FILE):
             print("❌ No .env file found!")
             print("Creating template .env file...")
-            with open('.env', 'w') as f:
+            with open(ENV_FILE, 'w') as f:
                 f.write("API_ID=\nAPI_HASH=\nTARGET_CHAT=\nDEBUG=false\n")
             print("⚠️ Please fill in your credentials in the .env file")
             return False
@@ -182,7 +206,7 @@ class SimpleSolListener:
             self.config['source_chats'] = self.source_chats
             self.config['filtered_users'] = self.filtered_users
             with open(CONFIG_FILE, 'w') as f:
-                json.dump(self.config, f)
+                json.dump(self.config, f, indent=4)
         except Exception as e:
             logging.error(f"Error saving config: {str(e)}")
 
@@ -335,7 +359,7 @@ class SimpleSolListener:
                                 selected_users.append(user_id)
                                 print(f"✅ Added: {username}")
                     except ValueError:
-                        print("❌ Please enter valid numbers")
+                        print(" Please enter valid numbers")
                 
                 return selected_users if selected_users else None
                 
@@ -680,23 +704,21 @@ class SimpleSolListener:
                 })
         return dialogs
 
-    def load_processed_tokens(self) -> set:
-        """Load previously processed tokens"""
-        try:
-            if os.path.exists('processed_tokens.json'):
-                with open('processed_tokens.json', 'r') as f:
-                    return set(json.load(f))
-        except Exception as e:
-            logging.error(f"Error loading processed tokens: {e}")
-        return set()
+    def load_processed_tokens(self) -> list:
+        tokens_file = BASE_DIR / 'processed_tokens.json'
+        if tokens_file.exists():
+            try:
+                return json.loads(tokens_file.read_text())
+            except Exception as e:
+                logging.error(f"Error loading processed tokens: {str(e)}")
+        return []
 
     def save_processed_tokens(self):
-        """Save processed tokens to file"""
         try:
-            with open('processed_tokens.json', 'w') as f:
-                json.dump(list(self.processed_tokens), f)
+            tokens_file = BASE_DIR / 'processed_tokens.json'
+            tokens_file.write_text(json.dumps(self.processed_tokens, indent=4))
         except Exception as e:
-            logging.error(f"Error saving processed tokens: {e}")
+            logging.error(f"Error saving processed tokens: {str(e)}")
 
     async def is_token_processed(self, contract_address: str) -> bool:
         """Check if token was already processed"""
@@ -709,33 +731,27 @@ class SimpleSolListener:
 
     async def monitor_health(self):
         """Monitor bot health and connection"""
-        last_check = 0  # Track last health check time
-        
         while True:
             try:
-                current_time = time.time()
-                # Only run health check if an hour has passed
-                if current_time - last_check >= 3600:
-                    # Check connection without await
-                    if not self.client.is_connected():
-                        logging.warning("Connection lost, attempting to reconnect...")
-                        await self.client.connect()
-                    
-                    uptime = current_time - self.start_time
-                    hours = int(uptime // 3600)
-                    minutes = int((uptime % 3600) // 60)
-                    
-                    logging.info(
-                        f"Health Check:\n"
-                        f"✓ Messages Processed: {self.processed_count}\n"
-                        f"✓ Tokens Forwarded: {self.forwarded_count}\n"
-                        f"✓ Unique Tokens: {len(self.processed_tokens)}\n"
-                        f"✓ Uptime: {hours}h {minutes}m\n"
-                        f"✓ Monitoring: {len(self.source_chats)} chats"
-                    )
-                    last_check = current_time
+                # Check connection without await
+                if not self.client.is_connected():
+                    logging.warning("Connection lost, attempting to reconnect...")
+                    await self.client.connect()
                 
-                await asyncio.sleep(60)  # Check every minute for connection
+                uptime = time.time() - self.start_time
+                hours = int(uptime // 3600)
+                minutes = int((uptime % 3600) // 60)
+                
+                logging.info(
+                    f"Health Check:\n"
+                    f"* Messages Processed: {self.processed_count}\n"
+                    f"* Tokens Forwarded: {self.forwarded_count}\n"
+                    f"* Unique Tokens: {len(self.processed_tokens)}\n"
+                    f"* Uptime: {hours}h {minutes}m\n"
+                    f"* Monitoring: {len(self.source_chats)} chats"
+                )
+                
+                await asyncio.sleep(3600)  # Check every hour
             except Exception as e:
                 logging.error(f"Health monitor error: {e}")
                 await asyncio.sleep(60)  # Wait before retry
@@ -893,7 +909,7 @@ class SimpleSolListener:
 
 async def main():
     """Main entry point"""
-    print("���� Welcome to Simple Solana Listener!")
+    print("👋 Welcome to Simple Solana Listener!")
     print("\n📁 Initializing Solana CA Listener...")
     print("=" * 50)
     
