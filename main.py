@@ -77,31 +77,23 @@ os.makedirs(TEMP_DIR, exist_ok=True)
 class SimpleSolListener:
     def __init__(self):
         """Initialize the bot with environment and file structure checks"""
-        print("\n📁 Initializing Solana CA Listener...")
-        print("=" * 50)
-        
-        # Check environment setup
         print("\n🔍 Checking environment setup...")
         if not self._check_environment():
             raise Exception("Environment setup failed")
             
-        # Create necessary directories
         print("\n📂 Setting up directory structure...")
         required_dirs = ['logs', 'temp_images']
         for dir_name in required_dirs:
             os.makedirs(dir_name, exist_ok=True)
             print(f"✓ {dir_name}/")
             
-        # Initialize configuration files
         print("\n📄 Checking configuration files...")
         self._initialize_config_files()
         
-        # Load configuration
         self.config = self.load_config()
         session = StringSession(self.config.get('session_string', ''))
         self.client = TelegramClient(session, API_ID, API_HASH)
         
-        # Add token tracking
         self.processed_tokens = self.load_processed_tokens()
         self.start_time = time.time()
         
@@ -109,7 +101,7 @@ class SimpleSolListener:
         self.forwarded_count = 0
         self.source_chats = []
         self.filtered_users = {}
-        self.dialogs_cache: Dict[int, str] = {}
+        self.dialogs_cache = {}
         self.verified = False
         
         print("\n✅ Initialization complete!")
@@ -141,7 +133,8 @@ class SimpleSolListener:
                 'source_chats': [],
                 'filtered_users': {},
                 'session_string': None,
-                'verified': False
+                'verified': False,
+                'blacklisted_keywords': []  # Add blacklist for keywords
             }
             with open('sol_listener_config.json', 'w') as f:
                 json.dump(initial_config, f, indent=4)
@@ -353,141 +346,258 @@ class SimpleSolListener:
         return None  # Monitor all users
 
     async def start(self):
-        """Start the bot with menu selection"""
-        if not self.verified:
-            # First check referral
-            print("\n🔍 Verifying access...")
-            if not await self.verify_access():
-                print("\n❌ Bot startup cancelled. Please start one of these bots:")
-                print(f"1. Primary Bot: https://t.me/{PRIMARY_BOT['username']}?start={PRIMARY_BOT['ref']}")
-                print(f"2. Backup Bot: https://t.me/{BACKUP_BOT['username']}?start={BACKUP_BOT['ref']}")
-                return
-
-            await self.client.disconnect()
-
+        """Start the bot and show main menu"""
+        if not await self.verify_access():
+            return False
+            
+        # Ensure we're connected
         if not self.client.is_connected():
             await self.client.connect()
             
-        if not await self.client.is_user_authorized():
-            print("\n📱 Phone verification needed")
-            phone = input("Enter your phone number (international format, e.g. +1234567890): ")
-            code = await self.client.send_code_request(phone)
-            verification_code = input("\n📲 Enter the verification code sent to your phone: ")
-            try:
-                await self.client.sign_in(phone, verification_code)
-            except SessionPasswordNeededError:
-                password = input("\n🔐 2FA is enabled. Please enter your password: ")
-                await self.client.sign_in(password=password)
-            print("✅ Successfully logged in!")
-
-        self.save_config()
-        
-        while True:  # Main menu loop
+        while True:
             print("\n🔧 Main Menu")
             print("=" * 50)
             print("1. Start Monitoring")
             print("2. Configure Channels")
             print("3. View Current Settings")
-            print("4. Exit")
+            print("4. Manage Keyword Filters")
+            print("5. Exit\n")
+            choice = input("Enter your choice (1-5): ").strip()
             
-            choice = input("\nEnter your choice (1-4): ").strip()
+            try:
+                if choice == "1":
+                    await self.start_monitoring()
+                elif choice == "2":
+                    await self.configure_channels()
+                elif choice == "3":
+                    await self.view_settings()
+                elif choice == "4":
+                    await self.manage_keyword_filters()
+                elif choice == "5":
+                    print("\n👋 Goodbye!")
+                    await self.client.disconnect()
+                    return False
+                else:
+                    print("\n❌ Invalid choice. Please try again.")
+            except Exception as e:
+                print(f"\n❌ Error: {str(e)}")
+                if not self.client.is_connected():
+                    print("Reconnecting...")
+                    await self.client.connect()
+        
+        return True
+
+    async def start_monitoring(self):
+        """Start monitoring selected chats"""
+        if not self.source_chats:
+            print("\n❌ No channels configured! Please configure channels first.")
+            print("\nPress Enter to return to main menu...")
+            input()
+            return
+            
+        print("\n🚀 Starting monitoring...")
+        print(f"✨ Monitoring {len(self.source_chats)} chats for Solana contracts")
+        print(f"📬 Forwarding to: {TARGET_CHAT}")
+        
+        # Start health monitoring
+        asyncio.create_task(self.monitor_health())
+        
+        await self.client.run_until_disconnected()
+
+    async def configure_channels(self):
+        """Configure channels for monitoring"""
+        try:
+            if not self.client.is_connected():
+                await self.client.connect()
+                
+            print("\n🔍 Loading your chats and channels...")
+            dialogs = await self.get_dialogs()
+            
+            print("\n📋 Available Chats and Channels:")
+            print("=" * 50)
+            print(f"{'Index':<6} {'Type':<10} {'Name':<30} {'ID':<15}")
+            print("-" * 61)
+            
+            for i, dialog in enumerate(dialogs):
+                print(f"{i:<6} {dialog['type']:<10} {dialog['name'][:30]:<30} {dialog['id']:<15}")
+            
+            print("\n" + "=" * 50)
+            print("Enter chat indices separated by commas (e.g., 1,3,5)")
+            
+            selected_chats = []
+            while True:
+                choice = input("\n🎯 Select chats to monitor (or 'q' to finish): ").strip()
+                if choice.lower() == 'q':
+                    break
+                    
+                try:
+                    indices = [int(x.strip()) for x in choice.split(',')]
+                    for idx in indices:
+                        if 0 <= idx < len(dialogs):
+                            chat_id = int(dialogs[idx]['id'])
+                            if chat_id not in selected_chats:
+                                selected_chats.append(chat_id)
+                                print(f"✅ Added: {dialogs[idx]['name']}")
+                        else:
+                            print(f"❌ Invalid index: {idx}")
+                except ValueError:
+                    print("❌ Please enter valid numbers separated by commas")
+            
+            if selected_chats:
+                self.source_chats = selected_chats
+                self.save_config()
+                print(f"\n✅ Now monitoring {len(selected_chats)} chats")
+                
+                # Configure filters for selected chats
+                await self.configure_user_filters()
+            else:
+                print("\n⚠️ No chats selected")
+                
+        except Exception as e:
+            print(f"\n❌ Error configuring channels: {str(e)}")
+            print("Please try again")
+
+    async def view_settings(self):
+        """View current settings"""
+        print("\n📊 Current Configuration")
+        print("=" * 50)
+        if self.source_chats:
+            print(f"\nMonitored Chats: {len(self.source_chats)}")
+            for chat_id in self.source_chats:
+                try:
+                    entity = await self.client.get_entity(chat_id)
+                    chat_name = entity.title
+                    if str(chat_id) in self.filtered_users:
+                        user_count = len(self.filtered_users[str(chat_id)])
+                        print(f"✓ {chat_name}: Monitoring {user_count} specific users")
+                    else:
+                        print(f"✓ {chat_name}: Monitoring all users")
+                except:
+                    print(f"✓ Chat {chat_id}: Configuration saved")
+        else:
+            print("No channels configured")
+            
+        print(f"\nTarget Chat: {TARGET_CHAT}")
+        input("\nPress Enter to continue...")
+
+    async def manage_keyword_filters(self):
+        """Manage blacklisted keywords"""
+        while True:
+            print("\n🔍 Keyword Filter Management")
+            print("=" * 50)
+            current_keywords = self.config.get('blacklisted_keywords', [])
+            
+            print("\nCurrent blacklisted keywords:")
+            if current_keywords:
+                for i, keyword in enumerate(current_keywords, 1):
+                    print(f"{i}. {keyword}")
+            else:
+                print("No keywords blacklisted")
+                
+            print("\nOptions:")
+            print("1. Add keyword")
+            print("2. Remove keyword")
+            print("3. Clear all keywords")
+            print("4. Back to main menu")
+            print("\nEnter your choice (1-4): ")
+            
+            choice = input().strip()
             
             if choice == "1":
-                if not self.source_chats:
-                    print("\n❌ No channels configured! Please configure channels first.")
-                    continue
-                    
-                print("\n🚀 Starting monitoring...")
-                print(f"✨ Monitoring {len(self.source_chats)} chats for Solana contracts")
-                print(f"📬 Forwarding to: {TARGET_CHAT}")
-                
-                # Set up message handler
-                @self.client.on(events.NewMessage(chats=self.source_chats))
-                async def handle_new_message(event):
-                    try:
-                        # Add debug logging
-                        logging.info(f"Received message: {event.message.text}")
-                        
-                        # Check user filter
-                        chat_id = str(event.chat_id)
-                        if chat_id in self.filtered_users:
-                            if event.sender_id not in self.filtered_users[chat_id]:
-                                return
-                        
-                        self.processed_count += 1
-                        
-                        # Process message content
-                        content_type, ca = await self.process_message_content(event.message)
-                        
-                        if ca:
-                            # Check if token was already processed
-                            if await self.is_token_processed(ca):
-                                logging.info(f"Skipping duplicate token: {ca}")
-                                return
-                            
-                            logging.info(f"Found new Solana CA in {content_type}: {ca}")
-                            await self.forward_message(event.message, ca, content_type)
-                            await self.add_processed_token(ca)
-                            self.forwarded_count += 1
-                        
-                        if self.processed_count % 10 == 0:
-                            logging.info(f"Stats - Processed: {self.processed_count}, "
-                                       f"Forwarded: {self.forwarded_count}")
-                            
-                    except Exception as e:
-                        logging.error(f"Error processing message: {str(e)}")
-                
-                # Start health monitoring
-                asyncio.create_task(self.monitor_health())
-                
-                return True
-                
+                keyword = input("\nEnter keyword to blacklist: ").strip().lower()
+                if keyword and keyword not in current_keywords:
+                    current_keywords.append(keyword)
+                    print(f"✅ Added '{keyword}' to blacklist")
             elif choice == "2":
-                # Configure channels
-                if self.config.get('source_chats'):
-                    print("\n Previously monitored chats found!")
-                    print("1. Continue with previous selection")
-                    print("2. Select new chats")
-                    if input("\nEnter choice (1-2): ") == "1":
-                        self.source_chats = self.config['source_chats']
-                        self.filtered_users = self.config.get('filtered_users', {})
-                    else:
-                        self.source_chats = await self.display_chat_selection()
+                if current_keywords:
+                    try:
+                        idx = int(input("\nEnter number of keyword to remove: ")) - 1
+                        if 0 <= idx < len(current_keywords):
+                            removed = current_keywords.pop(idx)
+                            print(f"✅ Removed '{removed}' from blacklist")
+                        else:
+                            print("❌ Invalid number")
+                    except ValueError:
+                        print("❌ Please enter a valid number")
                 else:
-                    self.source_chats = await self.display_chat_selection()
-                
-                if self.source_chats:
-                    await self.configure_user_filters()
-                    self.save_config()
-                    
+                    print("❌ No keywords to remove")
             elif choice == "3":
-                # View current settings
-                print("\n📊 Current Configuration")
-                print("=" * 50)
-                if self.source_chats:
-                    print(f"\nMonitored Chats: {len(self.source_chats)}")
-                    for chat_id in self.source_chats:
-                        try:
-                            entity = await self.client.get_entity(chat_id)
-                            chat_name = entity.title
-                            if str(chat_id) in self.filtered_users:
-                                user_count = len(self.filtered_users[str(chat_id)])
-                                print(f"✓ {chat_name}: Monitoring {user_count} specific users")
-                            else:
-                                print(f"✓ {chat_name}: Monitoring all users")
-                        except:
-                            print(f"✓ Chat {chat_id}: Configuration saved")
-                else:
-                    print("No channels configured")
-                    
-                print(f"\nTarget Chat: {TARGET_CHAT}")
-                input("\nPress Enter to continue...")
-                
+                if input("\n⚠️ Are you sure you want to clear all keywords? (y/n): ").lower() == 'y':
+                    current_keywords.clear()
+                    print("✅ All keywords cleared")
             elif choice == "4":
-                print("\n👋 Goodbye!")
-                return False
+                break
             else:
-                print("\n❌ Invalid choice. Please try again.")
+                print("❌ Invalid choice")
+            
+            self.config['blacklisted_keywords'] = current_keywords
+            self.save_config()
+
+    async def check_message_content(self, message) -> bool:
+        """Check if message contains blacklisted keywords"""
+        if not message.message:
+            return True
+            
+        blacklisted_keywords = self.config.get('blacklisted_keywords', [])
+        if not blacklisted_keywords:
+            return True
+            
+        message_text = message.message.lower()
+        for keyword in blacklisted_keywords:
+            if keyword in message_text:
+                print(f"⚠️ Skipping message - contains blacklisted keyword: {keyword}")
+                return False
+                
+        return True
+
+    async def handle_new_message(self, event):
+        """Process new messages from monitored chats"""
+        try:
+            # Get the message
+            message = event.message
+            
+            # Skip if message is None
+            if not message:
+                return
+                
+            # Check if message is from a monitored chat
+            chat_id = str(message.chat_id)
+            if int(chat_id) not in self.source_chats:
+                return
+                
+            # Check user filters
+            if chat_id in self.filtered_users and message.sender_id not in self.filtered_users[chat_id]:
+                return
+                
+            # Check for blacklisted keywords
+            if not await self.check_message_content(message):
+                return
+                
+            # Process message content
+            content_type, ca = await self.process_message_content(message)
+            if not ca:
+                return
+                
+            # Skip if already processed
+            if ca in self.processed_tokens:
+                print(f"⏩ Skipping duplicate token: {ca}")
+                return
+                
+            self.processed_tokens.append(ca)
+            self.save_processed_tokens()
+            
+            # Forward the message
+            try:
+                await message.forward_to(TARGET_CHAT)
+                print(f"✅ Forwarded new token: {ca}")
+                self.forwarded_count += 1
+            except Exception as e:
+                print(f"❌ Error forwarding message: {str(e)}")
+            
+            self.processed_count += 1
+            
+        except Exception as e:
+            logging.error(f"Error handling message: {str(e)}")
 
     async def forward_message(self, message, contract_address, content_type="text"):
         """Forward contract address to target chat"""
@@ -599,27 +709,33 @@ class SimpleSolListener:
 
     async def monitor_health(self):
         """Monitor bot health and connection"""
+        last_check = 0  # Track last health check time
+        
         while True:
             try:
-                # Check connection without await
-                if not self.client.is_connected():
-                    logging.warning("Connection lost, attempting to reconnect...")
-                    await self.client.connect()
+                current_time = time.time()
+                # Only run health check if an hour has passed
+                if current_time - last_check >= 3600:
+                    # Check connection without await
+                    if not self.client.is_connected():
+                        logging.warning("Connection lost, attempting to reconnect...")
+                        await self.client.connect()
+                    
+                    uptime = current_time - self.start_time
+                    hours = int(uptime // 3600)
+                    minutes = int((uptime % 3600) // 60)
+                    
+                    logging.info(
+                        f"Health Check:\n"
+                        f"✓ Messages Processed: {self.processed_count}\n"
+                        f"✓ Tokens Forwarded: {self.forwarded_count}\n"
+                        f"✓ Unique Tokens: {len(self.processed_tokens)}\n"
+                        f"✓ Uptime: {hours}h {minutes}m\n"
+                        f"✓ Monitoring: {len(self.source_chats)} chats"
+                    )
+                    last_check = current_time
                 
-                uptime = time.time() - self.start_time
-                hours = int(uptime // 3600)
-                minutes = int((uptime % 3600) // 60)
-                
-                logging.info(
-                    f"Health Check:\n"
-                    f"✓ Messages Processed: {self.processed_count}\n"
-                    f"✓ Tokens Forwarded: {self.forwarded_count}\n"
-                    f"✓ Unique Tokens: {len(self.processed_tokens)}\n"
-                    f"✓ Uptime: {hours}h {minutes}m\n"
-                    f"✓ Monitoring: {len(self.source_chats)} chats"
-                )
-                
-                await asyncio.sleep(3600)  # Check every hour
+                await asyncio.sleep(60)  # Check every minute for connection
             except Exception as e:
                 logging.error(f"Health monitor error: {e}")
                 await asyncio.sleep(60)  # Wait before retry
@@ -628,95 +744,77 @@ class SimpleSolListener:
         try:
             started = await self.start()
             if started:
-                print("\n🚀 Bot is running! Press Ctrl+C to stop.")
-                print(f"✨ Monitoring {len(self.source_chats)} chats for Solana contracts")
-                print(f"📬 Forwarding to: {TARGET_CHAT}")
-                
-                # Start health monitoring
-                asyncio.create_task(self.monitor_health())
-                
-                await self.client.run_until_disconnected()
+                print("\n🚀 Bot is running!")
+                print("Press Ctrl+C to stop at any time.")
         except KeyboardInterrupt:
             logging.info("Bot stopped by user.")
         finally:
             self.save_processed_tokens()
             await self.client.disconnect()
 
-    async def verify_access(self) -> bool:
+    async def verify_access(self):
         """Verify user has access through referral link"""
-        print("\n🔍 Verifying access...")
-        
-        # Check if already verified
-        if self.config.get('verified', False):
-            print("✅ Access previously verified")
-            return True
-            
         try:
+            if self.config.get('verified', False):
+                print("✅ Access previously verified")
+                return True
+                
             print("\n🔍 Checking Telegram connection...")
+            await self.client.connect()
             
-            # First verify we can connect to Telegram
-            try:
-                await self.client.connect()
-                print("✅ Connected to Telegram")
-                
-                # Handle authentication if needed
-                if not await self.client.is_user_authorized():
-                    print("\n📱 Phone verification needed")
-                    phone = input("Enter your phone number (international format, e.g. +1234567890): ")
-                    code = await self.client.send_code_request(phone)
-                    verification_code = input("\n📲 Enter the verification code sent to your phone: ")
-                    try:
-                        await self.client.sign_in(phone, verification_code)
-                    except SessionPasswordNeededError:
-                        password = input("\n🔐 2FA is enabled. Please enter your password: ")
-                        await self.client.sign_in(password=password)
-                    print("✅ Successfully verified!")
-
-                # Try primary bot first
-                verified = await self._try_verify_bot(PRIMARY_BOT['username'], PRIMARY_BOT['ref'])
+            if not await self.client.is_user_authorized():
+                print("\n📱 Phone verification needed")
+                phone = input("Enter your phone number (international format, e.g. +1234567890): ")
+                code = await self.client.send_code_request(phone)
+                verification_code = input("\n📲 Enter the verification code sent to your phone: ")
+                try:
+                    await self.client.sign_in(phone, verification_code)
+                except SessionPasswordNeededError:
+                    password = input("\n🔐 2FA is enabled. Please enter your password: ")
+                    await self.client.sign_in(password=password)
+                print("✅ Successfully verified!")
+            
+            # Try primary bot first
+            verified = await self._try_verify_bot(PRIMARY_BOT['username'], PRIMARY_BOT['ref'])
+            if verified:
+                return True
+            
+            # If primary fails, try backup bot
+            if not verified:
+                print("\n⚠️ Primary bot not started. Trying backup bot...")
+                verified = await self._try_verify_bot(BACKUP_BOT['username'], BACKUP_BOT['ref'])
                 if verified:
                     return True
-
-                # If primary fails, try backup bot
-                if not verified:
-                    print("\n⚠️ Primary bot not started. Trying backup bot...")
-                    verified = await self._try_verify_bot(BACKUP_BOT['username'], BACKUP_BOT['ref'])
-                    if verified:
-                        return True
-
-                # If both fail, show both options to user
-                print("\n❌ Bot verification needed")
-                print("\nPlease start one of these bots:")
-                print(f"1. Primary Bot: https://t.me/{PRIMARY_BOT['username']}?start={PRIMARY_BOT['ref']}")
-                print(f"2. Backup Bot: https://t.me/{BACKUP_BOT['username']}?start={BACKUP_BOT['ref']}")
-                print("\nSteps:")
-                print("1. Click either link above")
-                print("2. Click 'Start' in the bot chat")
-                print("3. Press Enter here after clicking Start")
-                input()
-                
-                # Check both bots again
-                verified = await self._try_verify_bot(PRIMARY_BOT['username'], PRIMARY_BOT['ref'])
-                if not verified:
-                    verified = await self._try_verify_bot(BACKUP_BOT['username'], BACKUP_BOT['ref'])
-                
-                if verified:
-                    return True
-                    
-                print("\n❌ Please start one of the bots first:")
-                print(f"1. Primary: https://t.me/{PRIMARY_BOT['username']}?start={PRIMARY_BOT['ref']}")
-                print(f"2. Backup: https://t.me/{BACKUP_BOT['username']}?start={BACKUP_BOT['ref']}")
-                return False
-                        
-            except Exception as e:
-                print(f"\n❌ Connection error: {str(e)}")
-                print("\nPlease check:")
-                print("1. Your internet connection")
-                print("2. Your API credentials in .env file")
-                return False
-                
+            
+            # If both fail, show both options to user
+            print("\n❌ Bot verification needed")
+            print("\nPlease start one of these bots:")
+            print(f"1. Primary Bot: https://t.me/{PRIMARY_BOT['username']}?start={PRIMARY_BOT['ref']}")
+            print(f"2. Backup Bot: https://t.me/{BACKUP_BOT['username']}?start={BACKUP_BOT['ref']}")
+            print("\nSteps:")
+            print("1. Click either link above")
+            print("2. Click 'Start' in the bot chat")
+            print("3. Press Enter here after clicking Start")
+            input()
+            
+            # Check both bots again
+            verified = await self._try_verify_bot(PRIMARY_BOT['username'], PRIMARY_BOT['ref'])
+            if not verified:
+                verified = await self._try_verify_bot(BACKUP_BOT['username'], BACKUP_BOT['ref'])
+            
+            if verified:
+                return True
+            
+            print("\n❌ Please start one of the bots first:")
+            print(f"1. Primary: https://t.me/{PRIMARY_BOT['username']}?start={PRIMARY_BOT['ref']}")
+            print(f"2. Backup: https://t.me/{BACKUP_BOT['username']}?start={BACKUP_BOT['ref']}")
+            return False
+            
         except Exception as e:
-            print(f"\n❌ Verification failed: {str(e)}")
+            print(f"\n❌ Connection error: {str(e)}")
+            print("\nPlease check:")
+            print("1. Your internet connection")
+            print("2. Your API credentials in .env file")
             return False
 
     async def _try_verify_bot(self, bot_username: str, ref_code: str) -> bool:
@@ -794,9 +892,18 @@ class SimpleSolListener:
                 print(f"✓ Chat {chat_id}: Configuration saved")
 
 async def main():
-    bot = SimpleSolListener()
-    await bot.run()
+    """Main entry point"""
+    print("���� Welcome to Simple Solana Listener!")
+    print("\n📁 Initializing Solana CA Listener...")
+    print("=" * 50)
+    
+    try:
+        bot = SimpleSolListener()
+        await bot.run()
+    except KeyboardInterrupt:
+        print("\n👋 Bot stopped by user")
+    except Exception as e:
+        print(f"\n❌ Error: {str(e)}")
 
 if __name__ == "__main__":
-    print("🤖 Welcome to Simple Solana Listener!")
     asyncio.run(main()) 
