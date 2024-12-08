@@ -33,12 +33,21 @@ A Telegram bot designed to help you find and auto-buy new Solana tokens. It moni
 
 ## Installation
 
-1. Install required packages:
+### Option 1: Using uv (Recommended - Faster & More Secure)
+```bash
+# Install uv
+pip install uv
+
+# Install dependencies using uv
+uv pip install -r requirements.lock
+```
+
+### Option 2: Using pip
 ```bash
 pip install -r requirements.txt
 ```
 
-2. Set up environment:
+### Environment Setup
 ```bash
 # Windows
 copy .env.sample .env
@@ -47,7 +56,7 @@ copy .env.sample .env
 cp .env.sample .env
 ```
 
-3. Edit `.env` with your credentials:
+Edit `.env` with your credentials:
 ```ini
 # Required
 API_ID=your_api_id
