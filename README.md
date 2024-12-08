@@ -1,53 +1,103 @@
-# Telegram Solana Contract Address Listener
+# Telegram Solana Contract Address Listener v1.0.0
 
 A Telegram bot designed to help you find and auto-buy new Solana tokens. It monitors specified Telegram channels for Solana contract addresses and instantly forwards them to your target channel for automated trading. Perfect for catching new token launches and trading opportunities as soon as they appear.
 
-## Key Benefits
-- Instant detection of new Solana tokens from monitored channels
-- Automatic forwarding to your trading bot channel
-- Supports all major Solana token link formats (DexScreener, Birdeye, Jupiter, etc.)
-- Never miss a new token launch opportunity
-
 ## Features
-- Monitor multiple Telegram channels/groups for new tokens
-- User-specific filtering for each monitored channel
-- Automatic Solana contract address detection from various sources:
-  - DexScreener links
-  - Birdeye links
-  - Solscan links
-  - Jupiter swap links
-  - GMGN links
+- Instant token detection from multiple sources:
+  - DexScreener
+  - Birdeye
+  - Solscan
+  - Jupiter
+  - GMGN
   - Raw contract addresses
+- Keyword filtering to skip unwanted tokens
+- Multiple channel monitoring
+- User-specific filtering
 - Health monitoring and statistics
 - Session persistence
-- Configurable forwarding to your trading bot
-
-## Prerequisites
-
-1. Python 3.8 or higher
-2. Telegram API credentials from https://my.telegram.org/apps
-3. A Telegram account
-4. Access to either:
-   - Primary Bot: @odysseus_trojanbot
-   - Backup Bot: @TradeonNovaBot
 
 ## Installation
 
-### Option 1: Using uv (Recommended - Faster & More Secure)
+### Option 1: Using Dev Container (Recommended)
+The fastest and most reliable way to get started is using VS Code with Dev Containers. This setup includes:
+- Optimized Python 3.12 environment
+- Ultra-fast `uv` package manager (10-100x faster than pip)
+- Automatic dependency management
+- Type checking and code formatting
+
+#### Prerequisites
+1. **Install Docker**:
+   - **Windows**: 
+     1. Enable WSL2 in Windows Features
+     2. Download [Docker Desktop for Windows](https://www.docker.com/products/docker-desktop/)
+     3. Run the installer and follow the prompts
+     4. Start Docker Desktop
+   
+   - **Mac**: 
+     1. Download [Docker Desktop for Mac](https://www.docker.com/products/docker-desktop/)
+     2. Run the installer
+     3. Start Docker from Applications
+   
+   - **Linux**:
+     ```bash
+     # Ubuntu/Debian
+     sudo apt update
+     sudo apt install docker.io
+     sudo systemctl start docker
+     sudo systemctl enable docker
+     sudo usermod -aG docker $USER
+     # Log out and back in for changes to take effect
+     ```
+
+2. **Install VS Code**:
+   - Download from [code.visualstudio.com](https://code.visualstudio.com/)
+   - Run the installer for your OS
+   - Launch VS Code
+
+3. **Install Dev Containers Extension**:
+   1. Open VS Code
+   2. Press Ctrl+P (Cmd+P on Mac)
+   3. Paste: `ext install ms-vscode-remote.remote-containers`
+   4. Press Enter
+
+#### Setup Steps
+1. Clone this repository:
+   ```bash
+   git clone https://github.com/your-username/solana-token-listener.git
+   cd solana-token-listener
+   ```
+
+2. Open in VS Code:
+   ```bash
+   code .
+   ```
+
+3. When prompted "Reopen in Container", click it
+   - Or press F1, type "Reopen in Container", and press Enter
+
+The container will automatically:
+- Set up the Python environment
+- Install dependencies using `uv`
+- Configure VS Code settings
+- Enable type checking and formatting
+
+### Option 2: Manual Installation with uv
+If you prefer not to use containers:
 ```bash
 # Install uv
 pip install uv
 
-# Install dependencies using uv
+# Install dependencies using uv (much faster than pip)
 uv pip install -r requirements.lock
 ```
 
-### Option 2: Using pip
+### Option 3: Traditional pip Installation
 ```bash
 pip install -r requirements.txt
 ```
 
 ### Environment Setup
+Copy the sample environment file:
 ```bash
 # Windows
 copy .env.sample .env
@@ -59,9 +109,9 @@ cp .env.sample .env
 Edit `.env` with your credentials:
 ```ini
 # Required
-API_ID=your_api_id
-API_HASH=your_api_hash
-TARGET_CHAT=your_channel  # Use channel username or -100xxxxx format
+API_ID=your_api_id        # From https://my.telegram.org
+API_HASH=your_api_hash    # From https://my.telegram.org
+TARGET_CHAT=your_channel  # Channel username or -100xxxxx format
 
 # Optional
 DEBUG=false
@@ -74,124 +124,33 @@ DEBUG=false
 python main.py
 ```
 
-2. Main Menu Options:
-   - Start Monitoring: Begin monitoring channels
-   - Configure Channels: Modify channel and filter settings
-   - View Current Settings: Display current configuration
+2. First-time Setup:
+   - Enter your phone number
+   - Enter Telegram verification code
+   - Start one of the verification bots:
+     - Primary: @odysseus_trojanbot
+     - Backup: @TradeonNovaBot
+
+3. Main Menu Options:
+   - Start Monitoring: Begin watching for tokens
+   - Configure Channels: Select which channels to monitor
+   - View Current Settings: Check your configuration
+   - Manage Keyword Filters: Set up token filtering
    - Exit: Close the bot
 
-3. First-time Setup:
-   - Verify access through either:
-     - Primary Bot: @odysseus_trojanbot
-     - Backup Bot: @TradeonNovaBot
-   - Enter your phone number (if not previously authenticated)
-   - Enter Telegram verification code
-   - Enter 2FA password (if enabled)
-   - Select channels to monitor
-   - Configure user filters for each channel (optional)
-
-4. The bot will then:
+4. The bot will:
    - Monitor selected channels
-   - Apply user filters if configured
-   - Detect and forward Solana contract addresses from various sources:
-     - DexScreener links
-     - Birdeye links
-     - Solscan links
-     - Jupiter links
-     - GMGN links
-     - Raw contract addresses
-   - Provide hourly health checks
+   - Filter messages based on your settings
+   - Forward new token addresses to your target channel
+   - Provide health status updates
 
-## Configuration Files
-
-### .env
-Contains API credentials and basic settings:
-```ini
-API_ID=your_api_id
-API_HASH=your_api_hash
-TARGET_CHAT=your_channel  # Use channel username or -100xxxxx format
-DEBUG=false
-```
-
-### sol_listener_config.json
-Stores bot configuration and session data:
-```json
-{
-    "source_chats": [channel_ids],
-    "filtered_users": {
-        "channel_id": [user_ids]
-    },
-    "session_string": "your_session_string",
-    "target_chat": "target_channel",
-    "verified": true
-}
-```
-
-### processed_tokens.json
-Maintains a list of processed token addresses to prevent duplicates.
-
-## Health Monitoring
-
-The bot provides hourly health checks with:
-- Connection status
-- Messages processed count
-- Tokens forwarded count
-- Unique tokens tracked
-- Uptime statistics
-- Number of monitored chats
-
-Health logs are stored in `logs/bot.log`
-
-## User Filtering
-
-For each monitored channel, you can:
-1. Monitor all users
-2. Monitor specific users by ID
-3. Update filters during runtime
-
-## Environment Settings
-
-You can edit these settings through the bot menu:
-1. API_ID: Your Telegram API ID
-2. API_HASH: Your Telegram API Hash
-3. TARGET_CHAT: Destination for found tokens (channel username or -100xxxxx format)
-4. DEBUG: Enable/disable debug mode
-
-## Troubleshooting
-
-1. **Database Locked Error**
-   - Close all Python processes
-   - Delete the `solana_listener.session` file
-   - Restart the bot
-
-2. **Authentication Failed**
-   - Verify API credentials in `.env`
-   - Check referral access with @odysseus_trojanbot
-   - Clear session files and restart
-
-3. **Access Verification Failed**
-   - Ensure you've used the correct referral link
-   - Verify bot interaction history
-   - Check configuration in `sol_listener_config.json`
-
-4. **No Messages Being Processed**
-   - Verify selected channels in configuration
-   - Check user filters if configured
-   - Ensure bot has access to monitored channels
-
-5. **TARGET_CHAT Format Error**
-   - Ensure TARGET_CHAT starts with @ for usernames
-   - Or starts with -100 for channel IDs
-   - Use the Edit Environment Settings menu to fix
-
-## Security Notes
-
-- Never share your session string or API credentials
-- Keep your `.env` and configuration files secure
-- Regularly backup your configuration files
-- Monitor the health checks for unusual activity
+## Support
+If you need help:
+1. Check the error messages - they're designed to be helpful
+2. Make sure your `.env` file is configured correctly
+3. Verify you have started one of the verification bots
+4. Ensure your target channel is accessible
 
 ## Disclaimer
-
 This bot is for monitoring purposes only. Always verify contract addresses from trusted sources before interacting with them.
   
