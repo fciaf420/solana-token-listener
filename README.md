@@ -18,70 +18,63 @@ A Telegram bot designed to help you find and auto-buy new Solana tokens. It moni
 
 ## Installation
 
-### Option 1: Using Dev Container (Recommended)
-The fastest and most reliable way to get started is using VS Code with Dev Containers. This setup includes:
-- Optimized Python 3.12 environment
-- Ultra-fast `uv` package manager (10-100x faster than pip)
-- Automatic dependency management
-- Type checking and code formatting
+### Option 1: Using Docker (Simplest)
+The easiest way to run the bot is using Docker:
 
-#### Prerequisites
 1. **Install Docker**:
-   - **Windows**: 
-     1. Enable WSL2 in Windows Features
-     2. Download [Docker Desktop for Windows](https://www.docker.com/products/docker-desktop/)
-     3. Run the installer and follow the prompts
-     4. Start Docker Desktop
-   
-   - **Mac**: 
-     1. Download [Docker Desktop for Mac](https://www.docker.com/products/docker-desktop/)
-     2. Run the installer
-     3. Start Docker from Applications
-   
-   - **Linux**:
-     ```bash
-     # Ubuntu/Debian
-     sudo apt update
-     sudo apt install docker.io
-     sudo systemctl start docker
-     sudo systemctl enable docker
-     sudo usermod -aG docker $USER
-     # Log out and back in for changes to take effect
-     ```
+   - **Windows**: Install [Docker Desktop](https://www.docker.com/products/docker-desktop/)
+   - **Mac**: Install [Docker Desktop](https://www.docker.com/products/docker-desktop/)
+   - **Linux**: `sudo apt install docker.io docker-compose`
 
-2. **Install VS Code**:
-   - Download from [code.visualstudio.com](https://code.visualstudio.com/)
-   - Run the installer for your OS
-   - Launch VS Code
-
-3. **Install Dev Containers Extension**:
-   1. Open VS Code
-   2. Press Ctrl+P (Cmd+P on Mac)
-   3. Paste: `ext install ms-vscode-remote.remote-containers`
-   4. Press Enter
-
-#### Setup Steps
-1. Clone this repository:
+2. **Setup**:
    ```bash
+   # Clone the repository
    git clone https://github.com/your-username/solana-token-listener.git
    cd solana-token-listener
+
+   # Copy and edit environment file
+   cp .env.sample .env
+   # Edit .env with your credentials
+
+   # Start the bot
+   docker-compose up -d
+
+   # View logs
+   docker-compose logs -f
    ```
 
-2. Open in VS Code:
-   ```bash
-   code .
-   ```
+The bot will automatically:
+- Build with all dependencies
+- Run in the background
+- Restart if it crashes
+- Persist data between restarts
 
-3. When prompted "Reopen in Container", click it
-   - Or press F1, type "Reopen in Container", and press Enter
+#### Data Persistence
+The bot stores its data in the `./data` directory, which is mounted as a volume in Docker:
+- Session information (no need to re-login)
+- Configured channels and filters
+- Processed tokens history
+- Logs and health data
 
-The container will automatically:
-- Set up the Python environment
-- Install dependencies using `uv`
-- Configure VS Code settings
-- Enable type checking and formatting
+This means your settings and data are preserved even if you:
+- Restart the container
+- Update the bot
+- Switch between Docker and local running
 
-### Option 2: Manual Installation with uv
+### Option 2: Using Dev Container (Best for Development)
+If you're using VS Code, this gives you the best development experience:
+
+#### Prerequisites
+1. Install Docker (see Option 1)
+2. Install VS Code
+3. Install "Dev Containers" extension in VS Code
+
+#### Setup
+1. Open project in VS Code
+2. Click "Reopen in Container" when prompted
+3. Everything is automatically configured!
+
+### Option 3: Manual Installation with uv
 If you prefer not to use containers:
 ```bash
 # Install uv
@@ -91,7 +84,7 @@ pip install uv
 uv pip install -r requirements.lock
 ```
 
-### Option 3: Traditional pip Installation
+### Option 4: Traditional pip Installation
 ```bash
 pip install -r requirements.txt
 ```
@@ -121,6 +114,11 @@ DEBUG=false
 
 1. Start the bot:
 ```bash
+# If using Docker:
+docker-compose up -d
+docker-compose logs -f
+
+# If installed locally:
 python main.py
 ```
 
@@ -132,6 +130,7 @@ python main.py
      - Backup: @TradeonNovaBot
 
 3. Main Menu Options:
+   - Quick Start: Resume monitoring with saved settings
    - Start Monitoring: Begin watching for tokens
    - Configure Channels: Select which channels to monitor
    - View Current Settings: Check your configuration

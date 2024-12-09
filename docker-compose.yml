@@ -1,1 +1,14 @@
- 
+version: '3.8'
+
+services:
+  bot:
+    build: .
+    volumes:
+      - .:/app
+      - ./data:/app/data  # For persistent storage
+    env_file:
+      - .env
+    restart: unless-stopped  # Auto-restart on crash
+    environment:
+      - PYTHONUNBUFFERED=1
+      - UV_SYSTEM_PYTHON=1 
