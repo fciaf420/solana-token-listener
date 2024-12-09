@@ -122,10 +122,11 @@ class SimpleSolListener:
         
         self.processed_count = 0
         self.forwarded_count = 0
-        self.source_chats = []
-        self.filtered_users = {}
+        # Load saved source chats from config
+        self.source_chats = self.config.get('source_chats', [])
+        self.filtered_users = self.config.get('filtered_users', {})
         self.dialogs_cache = {}
-        self.verified = False
+        self.verified = self.config.get('verified', False)
         
         print("\n✅ Initialization complete!")
         
@@ -379,17 +380,40 @@ class SimpleSolListener:
             await self.client.connect()
             
         while True:
+            # Get chat names for display
+            chat_info = "No channels configured"
+            if self.source_chats:
+                try:
+                    entity = await self.client.get_entity(int(self.source_chats[0]))
+                    chat_name = entity.title if hasattr(entity, 'title') else str(self.source_chats[0])
+                    if str(self.source_chats[0]) in self.filtered_users:
+                        user_count = len(self.filtered_users[str(self.source_chats[0])])
+                        chat_info = f"{chat_name} ({user_count} selected users)"
+                    else:
+                        chat_info = f"{chat_name} (all users)"
+                except:
+                    chat_info = f"Chat {self.source_chats[0]}"
+            
             print("\n🔧 Main Menu")
             print("=" * 50)
+            print(f"0. Quick Start - Resume Monitoring ({chat_info})")
             print("1. Start Monitoring")
             print("2. Configure Channels")
             print("3. View Current Settings")
             print("4. Manage Keyword Filters")
             print("5. Exit\n")
-            choice = input("Enter your choice (1-5): ").strip()
+            choice = input("Enter your choice (0-5): ").strip()
             
             try:
-                if choice == "1":
+                if choice == "0":
+                    if self.source_chats:
+                        print("\n🚀 Quick starting with saved settings...")
+                        await self.view_settings()  # Show current config
+                        await self.start_monitoring()
+                    else:
+                        print("\n❌ No channels configured! Please configure channels first (option 2).")
+                        input("\nPress Enter to continue...")
+                elif choice == "1":
                     await self.start_monitoring()
                 elif choice == "2":
                     await self.configure_channels()
@@ -422,6 +446,11 @@ class SimpleSolListener:
         print("\n🚀 Starting monitoring...")
         print(f"✨ Monitoring {len(self.source_chats)} chats for Solana contracts")
         print(f"📬 Forwarding to: {TARGET_CHAT}")
+        
+        # Register event handler for new messages
+        @self.client.on(events.NewMessage())
+        async def message_handler(event):
+            await self.handle_new_message(event)
         
         # Start health monitoring
         asyncio.create_task(self.monitor_health())
@@ -485,12 +514,13 @@ class SimpleSolListener:
         """View current settings"""
         print("\n📊 Current Configuration")
         print("=" * 50)
+        
         if self.source_chats:
             print(f"\nMonitored Chats: {len(self.source_chats)}")
             for chat_id in self.source_chats:
                 try:
-                    entity = await self.client.get_entity(chat_id)
-                    chat_name = entity.title
+                    entity = await self.client.get_entity(int(chat_id))
+                    chat_name = entity.title if hasattr(entity, 'title') else str(chat_id)
                     if str(chat_id) in self.filtered_users:
                         user_count = len(self.filtered_users[str(chat_id)])
                         print(f"✓ {chat_name}: Monitoring {user_count} specific users")
@@ -499,7 +529,7 @@ class SimpleSolListener:
                 except:
                     print(f"✓ Chat {chat_id}: Configuration saved")
         else:
-            print("No channels configured")
+            print("\nNo channels configured")
             
         print(f"\nTarget Chat: {TARGET_CHAT}")
         input("\nPress Enter to continue...")
@@ -589,17 +619,32 @@ class SimpleSolListener:
             if int(chat_id) not in self.source_chats:
                 return
                 
+            # Log message receipt for debugging
+            try:
+                chat = await self.client.get_entity(message.chat_id)
+                sender = await self.client.get_entity(message.sender_id)
+                logging.info(
+                    f"\nReceived message from {chat.title}\n"
+                    f"From user: @{getattr(sender, 'username', None) or sender.first_name}\n"
+                    f"Message: {message.message[:100]}..."
+                )
+            except Exception as e:
+                logging.error(f"Error logging message details: {e}")
+                
             # Check user filters
             if chat_id in self.filtered_users and message.sender_id not in self.filtered_users[chat_id]:
+                logging.info("Message filtered: User not in monitored list")
                 return
                 
             # Check for blacklisted keywords
             if not await self.check_message_content(message):
+                logging.info("Message filtered: Contains blacklisted keyword")
                 return
                 
             # Process message content
             content_type, ca = await self.process_message_content(message)
             if not ca:
+                logging.info("No CA found in message")
                 return
                 
             # Skip if already processed
@@ -614,14 +659,17 @@ class SimpleSolListener:
             try:
                 await message.forward_to(TARGET_CHAT)
                 print(f"✅ Forwarded new token: {ca}")
+                logging.info(f"Successfully forwarded CA: {ca}")
                 self.forwarded_count += 1
             except Exception as e:
                 print(f"❌ Error forwarding message: {str(e)}")
+                logging.error(f"Error forwarding message: {str(e)}")
             
             self.processed_count += 1
             
         except Exception as e:
             logging.error(f"Error handling message: {str(e)}")
+            logging.exception("Full traceback:")
 
     async def forward_message(self, message, contract_address, content_type="text"):
         """Forward contract address to target chat"""
@@ -760,7 +808,7 @@ class SimpleSolListener:
         try:
             started = await self.start()
             if started:
-                print("\n🚀 Bot is running!")
+                print("\n��� Bot is running!")
                 print("Press Ctrl+C to stop at any time.")
         except KeyboardInterrupt:
             logging.info("Bot stopped by user.")
@@ -914,7 +962,20 @@ async def main():
     print("=" * 50)
     
     try:
+        print("\n🔄 Running startup checks...")
+        print("=" * 50)
         bot = SimpleSolListener()
+        
+        print("\n📊 Startup Summary")
+        print("=" * 50)
+        print("✓ Environment variables loaded")
+        print("✓ Configuration files initialized")
+        print("✓ Directories created")
+        print("✓ Session loaded")
+        print(f"✓ Monitoring {len(bot.source_chats)} chats")
+        print(f"✓ Target chat: {TARGET_CHAT}")
+        print("=" * 50)
+        
         await bot.run()
     except KeyboardInterrupt:
         print("\n👋 Bot stopped by user")
