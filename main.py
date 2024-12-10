@@ -679,15 +679,41 @@ class SimpleSolListener:
             self.processed_tokens.append(ca)
             self.save_processed_tokens()
             
-            # Forward the message
+            # Try to forward the message
             try:
                 await message.forward_to(TARGET_CHAT)
                 print(f"✅ Forwarded new token: {ca}")
                 logging.info(f"Successfully forwarded CA: {ca}")
                 self.forwarded_count += 1
-            except Exception as e:
-                print(f"��� Error forwarding message: {str(e)}")
-                logging.error(f"Error forwarding message: {str(e)}")
+            except Exception as forward_error:
+                # If forwarding fails due to protection, send as new message
+                if "protected chat" in str(forward_error):
+                    try:
+                        # Create a formatted message with source info
+                        source_info = f"Source: {chat.title}"
+                        if sender_name:
+                            source_info += f" | From: {sender_name}"
+                            
+                        formatted_message = (
+                            f"🔔 New Token Detected\n\n"
+                            f"💎 CA: `{ca}`\n\n"
+                            f"🔍 {source_info}\n\n"
+                            f"Quick Links:\n"
+                            f"• Birdeye: https://birdeye.so/token/{ca}\n"
+                            f"• Solscan: https://solscan.io/token/{ca}\n"
+                            f"• Jupiter: https://jup.ag/swap/SOL-{ca}"
+                        )
+                        
+                        await self.client.send_message(TARGET_CHAT, formatted_message, parse_mode='markdown')
+                        print(f"✅ Sent new token message: {ca}")
+                        logging.info(f"Successfully sent CA as new message: {ca}")
+                        self.forwarded_count += 1
+                    except Exception as send_error:
+                        print(f"❌ Error sending message: {str(send_error)}")
+                        logging.error(f"Error sending message: {str(send_error)}")
+                else:
+                    print(f"❌ Error forwarding message: {str(forward_error)}")
+                    logging.error(f"Error forwarding message: {str(forward_error)}")
             
             self.processed_count += 1
             
