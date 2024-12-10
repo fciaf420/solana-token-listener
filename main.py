@@ -384,15 +384,27 @@ class SimpleSolListener:
             chat_info = "No channels configured"
             if self.source_chats:
                 try:
-                    entity = await self.client.get_entity(int(self.source_chats[0]))
-                    chat_name = entity.title if hasattr(entity, 'title') else str(self.source_chats[0])
-                    if str(self.source_chats[0]) in self.filtered_users:
-                        user_count = len(self.filtered_users[str(self.source_chats[0])])
-                        chat_info = f"{chat_name} ({user_count} selected users)"
+                    chat_count = len(self.source_chats)
+                    chat_names = []
+                    for chat_id in self.source_chats[:3]:  # Show first 3 chats
+                        try:
+                            entity = await self.client.get_entity(int(chat_id))
+                            chat_name = entity.title if hasattr(entity, 'title') else str(chat_id)
+                            if str(chat_id) in self.filtered_users:
+                                user_count = len(self.filtered_users[str(chat_id)])
+                                chat_names.append(f"{chat_name} ({user_count} users)")
+                            else:
+                                chat_names.append(f"{chat_name} (all users)")
+                        except:
+                            chat_names.append(f"Chat {chat_id}")
+                    
+                    if chat_count > 3:
+                        chat_info = f"{chat_count} chats configured: {', '.join(chat_names[:3])} +{chat_count - 3} more"
                     else:
-                        chat_info = f"{chat_name} (all users)"
-                except:
-                    chat_info = f"Chat {self.source_chats[0]}"
+                        chat_info = f"{chat_count} chats configured: {', '.join(chat_names)}"
+                except Exception as e:
+                    chat_info = f"{len(self.source_chats)} chats configured"
+                    logging.error(f"Error getting chat names: {e}")
             
             print("\n🔧 Main Menu")
             print("=" * 50)
@@ -622,10 +634,22 @@ class SimpleSolListener:
             # Log message receipt for debugging
             try:
                 chat = await self.client.get_entity(message.chat_id)
-                sender = await self.client.get_entity(message.sender_id)
+                sender = await self.client.get_entity(message.sender_id) if message.sender_id else None
+                sender_name = None
+                
+                if sender:
+                    if hasattr(sender, 'username') and sender.username:
+                        sender_name = f"@{sender.username}"
+                    elif hasattr(sender, 'title'):  # It's a channel
+                        sender_name = f"Channel: {sender.title}"
+                    elif hasattr(sender, 'first_name'):  # It's a user
+                        sender_name = sender.first_name
+                    else:
+                        sender_name = f"ID: {message.sender_id}"
+                
                 logging.info(
                     f"\nReceived message from {chat.title}\n"
-                    f"From user: @{getattr(sender, 'username', None) or sender.first_name}\n"
+                    f"From: {sender_name or 'Unknown'}\n"
                     f"Message: {message.message[:100]}..."
                 )
             except Exception as e:
@@ -662,7 +686,7 @@ class SimpleSolListener:
                 logging.info(f"Successfully forwarded CA: {ca}")
                 self.forwarded_count += 1
             except Exception as e:
-                print(f"❌ Error forwarding message: {str(e)}")
+                print(f"��� Error forwarding message: {str(e)}")
                 logging.error(f"Error forwarding message: {str(e)}")
             
             self.processed_count += 1
@@ -808,7 +832,7 @@ class SimpleSolListener:
         try:
             started = await self.start()
             if started:
-                print("\n��� Bot is running!")
+                print("\n🤖 Bot is running!")
                 print("Press Ctrl+C to stop at any time.")
         except KeyboardInterrupt:
             logging.info("Bot stopped by user.")
