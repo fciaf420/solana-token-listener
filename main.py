@@ -663,9 +663,8 @@ class SimpleSolListener:
         blacklisted_keywords = self.config.get('blacklisted_keywords', [])
         whitelisted_keywords = self.config.get('whitelisted_keywords', [])
         
-        # First check whitelist if it's not empty
+        # If whitelist exists, message must match at least one whitelist keyword
         if whitelisted_keywords:
-            # If whitelist exists, message must match at least one whitelist keyword
             whitelist_match = False
             for keyword in whitelisted_keywords:
                 if keyword in message_text:
@@ -675,6 +674,8 @@ class SimpleSolListener:
             if not whitelist_match:
                 logging.info("❌ Message did not match any whitelist keywords")
                 return False
+        else:
+            logging.info("✓ No whitelist active, all messages allowed")
         
         # Then check blacklist
         for keyword in blacklisted_keywords:
