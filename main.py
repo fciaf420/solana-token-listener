@@ -547,71 +547,139 @@ class SimpleSolListener:
         input("\nPress Enter to continue...")
 
     async def manage_keyword_filters(self):
-        """Manage blacklisted keywords"""
+        """Manage keyword filters"""
         while True:
             print("\n🔍 Keyword Filter Management")
             print("=" * 50)
-            current_keywords = self.config.get('blacklisted_keywords', [])
             
-            print("\nCurrent blacklisted keywords:")
-            if current_keywords:
-                for i, keyword in enumerate(current_keywords, 1):
-                    print(f"{i}. {keyword}")
-            else:
-                print("No keywords blacklisted")
-                
-            print("\nOptions:")
-            print("1. Add keyword")
-            print("2. Remove keyword")
-            print("3. Clear all keywords")
-            print("4. Back to main menu")
-            print("\nEnter your choice (1-4): ")
+            current_blacklist = self.config.get('blacklisted_keywords', [])
+            current_whitelist = self.config.get('whitelisted_keywords', [])
             
-            choice = input().strip()
+            print("\n📊 Current Status:")
+            print("--------------------------------------------------")
+            print("⚫ Blacklist:", ", ".join(current_blacklist) if current_blacklist else "Empty")
+            print("⚪ Whitelist:", ", ".join(current_whitelist) if current_whitelist else "Empty")
             
-            if choice == "1":
-                keyword = input("\nEnter keyword to blacklist: ").strip().lower()
-                if keyword and keyword not in current_keywords:
-                    current_keywords.append(keyword)
-                    print(f"✅ Added '{keyword}' to blacklist")
-            elif choice == "2":
-                if current_keywords:
-                    try:
-                        idx = int(input("\nEnter number of keyword to remove: ")) - 1
-                        if 0 <= idx < len(current_keywords):
-                            removed = current_keywords.pop(idx)
-                            print(f"✅ Removed '{removed}' from blacklist")
+            print("\n📝 Options:")
+            print("--------------------------------------------------")
+            print("Blacklist Management:")
+            print("  1. View blacklist")
+            print("  2. Add to blacklist")
+            print("  3. Remove from blacklist")
+            print("  4. Clear blacklist")
+            
+            print("\nWhitelist Management:")
+            print("  5. View whitelist")
+            print("  6. Add to whitelist")
+            print("  7. Remove from whitelist")
+            print("  8. Clear whitelist")
+            
+            print("\nGeneral:")
+            print("  9. Clear all filters")
+            print("  0. Back to main menu")
+            
+            choice = input("\nEnter your choice (0-9): ").strip()
+            
+            try:
+                if choice == "0":
+                    break
+                    
+                elif choice in ["1", "5"]:  # View lists
+                    target_list = current_blacklist if choice == "1" else current_whitelist
+                    list_name = "Blacklist" if choice == "1" else "Whitelist"
+                    print(f"\nCurrent {list_name}:")
+                    if target_list:
+                        for i, word in enumerate(target_list, 1):
+                            print(f"{i}. {word}")
+                    else:
+                        print("Empty")
+                    input("\nPress Enter to continue...")
+                    
+                elif choice in ["2", "6"]:  # Add to lists
+                    target_list = current_blacklist if choice == "2" else current_whitelist
+                    list_name = "blacklist" if choice == "2" else "whitelist"
+                    word = input(f"\nEnter word to {list_name}: ").strip().lower()
+                    if word:
+                        if word in target_list:
+                            print(f"'{word}' already in {list_name}")
                         else:
-                            print("❌ Invalid number")
-                    except ValueError:
-                        print("❌ Please enter a valid number")
+                            target_list.append(word)
+                            print(f"Added '{word}' to {list_name}")
+                            
+                elif choice in ["3", "7"]:  # Remove from lists
+                    target_list = current_blacklist if choice == "3" else current_whitelist
+                    list_name = "blacklist" if choice == "3" else "whitelist"
+                    if target_list:
+                        print(f"\nSelect word to remove from {list_name}:")
+                        for i, word in enumerate(target_list, 1):
+                            print(f"{i}. {word}")
+                        try:
+                            idx = int(input("\nEnter number: ")) - 1
+                            if 0 <= idx < len(target_list):
+                                removed = target_list.pop(idx)
+                                print(f"Removed '{removed}'")
+                            else:
+                                print("Invalid number")
+                        except ValueError:
+                            print("Please enter a valid number")
+                    else:
+                        print(f"No words in {list_name}")
+                        
+                elif choice in ["4", "8"]:  # Clear lists
+                    target_list = current_blacklist if choice == "4" else current_whitelist
+                    list_name = "blacklist" if choice == "4" else "whitelist"
+                    if target_list:
+                        if input(f"\nClear entire {list_name}? (y/n): ").lower() == 'y':
+                            target_list.clear()
+                            print(f"{list_name.capitalize()} cleared")
+                    else:
+                        print(f"{list_name.capitalize()} is already empty")
+                        
+                elif choice == "9":  # Clear all
+                    if current_blacklist or current_whitelist:
+                        if input("\nClear ALL filters? (y/n): ").lower() == 'y':
+                            current_blacklist.clear()
+                            current_whitelist.clear()
+                            print("All filters cleared")
+                    else:
+                        print("No filters to clear")
+                        
                 else:
-                    print("❌ No keywords to remove")
-            elif choice == "3":
-                if input("\n⚠️ Are you sure you want to clear all keywords? (y/n): ").lower() == 'y':
-                    current_keywords.clear()
-                    print("✅ All keywords cleared")
-            elif choice == "4":
-                break
-            else:
-                print("❌ Invalid choice")
-            
-            self.config['blacklisted_keywords'] = current_keywords
+                    print("Invalid choice")
+                    
+            except Exception as e:
+                print(f"Error: {str(e)}")
+                
+            self.config['blacklisted_keywords'] = current_blacklist
+            self.config['whitelisted_keywords'] = current_whitelist
             self.save_config()
 
     async def check_message_content(self, message) -> bool:
-        """Check if message contains blacklisted keywords"""
+        """Check if message matches filters"""
         if not message.message:
             return True
             
-        blacklisted_keywords = self.config.get('blacklisted_keywords', [])
-        if not blacklisted_keywords:
-            return True
-            
         message_text = message.message.lower()
+        blacklisted_keywords = self.config.get('blacklisted_keywords', [])
+        whitelisted_keywords = self.config.get('whitelisted_keywords', [])
+        
+        # First check whitelist if it's not empty
+        if whitelisted_keywords:
+            # If whitelist exists, message must match at least one whitelist keyword
+            whitelist_match = False
+            for keyword in whitelisted_keywords:
+                if keyword in message_text:
+                    whitelist_match = True
+                    logging.info(f"✅ Message matched whitelist keyword: {keyword}")
+                    break
+            if not whitelist_match:
+                logging.info("❌ Message did not match any whitelist keywords")
+                return False
+        
+        # Then check blacklist
         for keyword in blacklisted_keywords:
             if keyword in message_text:
-                print(f"⚠️ Skipping message - contains blacklisted keyword: {keyword}")
+                logging.info(f"❌ Message contains blacklisted keyword: {keyword}")
                 return False
                 
         return True
