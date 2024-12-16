@@ -325,30 +325,34 @@ class SimpleSolListener:
         
         choice = input("\nEnter your choice (1-2): ")
         if choice == "2":
-            print("\n🔍 Loading recent users from chat...")
+            print("\n🔍 Loading all users from chat...")
             users = set()
             try:
-                async for message in self.client.iter_messages(chat_id, limit=100):
-                    if message.sender_id:
-                        try:
-                            user = await self.client.get_entity(message.sender_id)
-                            users.add((user.id, getattr(user, 'username', None) or user.first_name))
-                        except:
-                            continue
+                # Get all participants from the channel
+                async for user in self.client.iter_participants(chat_id):
+                    if user.id:
+                        users.add((user.id, getattr(user, 'username', None) or user.first_name))
                 
                 if not users:
-                    print("❌ No users found in recent messages")
+                    print("❌ No users found in the channel")
                     return None
                 
-                print("\n Recent Users:")
+                print("\n All Users:")
                 print("=" * 50)
-                users_list = list(users)
+                users_list = sorted(list(users), key=lambda x: x[1].lower())  # Sort by username
                 for i, (user_id, username) in enumerate(users_list):
                     print(f"{i:<3} | {username:<30} | {user_id}")
                 
+                print("\n📝 User Selection:")
+                print("--------------------------------------------------")
+                print("• Enter the numbers of users you want to monitor")
+                print("• Separate multiple numbers with commas (e.g., 0,2,5)")
+                print("• Type 'q' when you're done selecting")
+                print("Example: '0,3,7' to monitor users with index 0, 3, and 7")
+                
                 selected_users = []
                 while True:
-                    choice = input("\nEnter user indices to monitor (comma-separated) or 'q' to finish: ")
+                    choice = input("\n👥 Select users to monitor (or 'q' to finish): ")
                     if choice.lower() == 'q':
                         break
                     
@@ -420,7 +424,23 @@ class SimpleSolListener:
                 if choice == "0":
                     if self.source_chats:
                         print("\n🚀 Quick starting with saved settings...")
-                        await self.view_settings()  # Show current config
+                        print("\n📋 Loading saved configuration:")
+                        print("=" * 50)
+                        
+                        # Show chat configurations
+                        for chat_id in self.source_chats:
+                            try:
+                                entity = await self.client.get_entity(int(chat_id))
+                                chat_name = entity.title if hasattr(entity, 'title') else str(chat_id)
+                                if str(chat_id) in self.filtered_users:
+                                    user_count = len(self.filtered_users[str(chat_id)])
+                                    print(f"✓ {chat_name}: Monitoring {user_count} specific users")
+                                else:
+                                    print(f"✓ {chat_name}: Monitoring all users")
+                            except:
+                                print(f"✓ Chat {chat_id}: Configuration loaded")
+                        
+                        print("\n🎯 Starting monitoring with these settings...")
                         await self.start_monitoring()
                     else:
                         print("\n❌ No channels configured! Please configure channels first (option 2).")
@@ -1091,7 +1111,7 @@ async def main():
         print("✓ Configuration files initialized")
         print("✓ Directories created")
         print("✓ Session loaded")
-        print(f"✓ Monitoring {len(bot.source_chats)} chats")
+        print(f" Monitoring {len(bot.source_chats)} chats")
         print(f"✓ Target chat: {TARGET_CHAT}")
         print("=" * 50)
         
