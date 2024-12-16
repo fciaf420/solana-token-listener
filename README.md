@@ -1,24 +1,28 @@
-# Telegram Solana Contract Address Listener v1.0.0
+# 🤖 Telegram Solana Contract Address Listener v1.0.0
 
 A Telegram bot designed to help you find and auto-buy new Solana tokens. It monitors specified Telegram channels for Solana contract addresses and instantly forwards them to your target channel for automated trading. Perfect for catching new token launches and trading opportunities as soon as they appear.
 
-## Features
-- Instant token detection from multiple sources:
+## ✨ Features
+- 🚀 Instant token detection from multiple sources:
   - DexScreener
   - Birdeye
   - Solscan
   - Jupiter
   - GMGN
   - Raw contract addresses
-- Keyword filtering to skip unwanted tokens
-- Multiple channel monitoring
-- User-specific filtering
-- Health monitoring and statistics
-- Session persistence
+- 🔍 Advanced message filtering:
+  - ⚪ Whitelist word triggers (process messages containing specific words)
+  - ⚫ Blacklist word filters (skip messages containing unwanted words)
+  - Custom keyword combinations
+  - Case-sensitive options
+- 📡 Multiple channel monitoring
+- 👤 User-specific filtering
+- 📊 Health monitoring and statistics
+- 💾 Session persistence
 
-## Installation
+## 🛠️ Installation
 
-### Option 1: Using Docker (Simplest)
+### 🐳 Option 1: Using Docker (Simplest)
 The easiest way to run the bot is using Docker:
 
 1. **Install Docker**:
@@ -61,7 +65,7 @@ This means your settings and data are preserved even if you:
 - Update the bot
 - Switch between Docker and local running
 
-### Option 2: Using Dev Container (Best for Development)
+### 👨‍💻 Option 2: Using Dev Container (Best for Development)
 If you're using VS Code, this gives you the best development experience:
 
 #### Prerequisites
@@ -74,22 +78,12 @@ If you're using VS Code, this gives you the best development experience:
 2. Click "Reopen in Container" when prompted
 3. Everything is automatically configured!
 
-### Option 3: Manual Installation with uv
-If you prefer not to use containers:
-```bash
-# Install uv
-pip install uv
-
-# Install dependencies using uv (much faster than pip)
-uv pip install -r requirements.lock
-```
-
-### Option 4: Traditional pip Installation
+### 📦 Option 3: Traditional pip Installation
 ```bash
 pip install -r requirements.txt
 ```
 
-### Environment Setup
+### ⚙️ Environment Setup
 Copy the sample environment file:
 ```bash
 # Windows
@@ -110,7 +104,7 @@ TARGET_CHAT=your_channel  # Channel username or -100xxxxx format
 DEBUG=false
 ```
 
-## Usage
+## 📚 Usage
 
 1. Start the bot:
 ```bash
@@ -123,33 +117,48 @@ python main.py
 ```
 
 2. First-time Setup:
-   - Enter your phone number
-   - Enter Telegram verification code
-   - Start one of the verification bots:
-     - Primary: @odysseus_trojanbot
-     - Backup: @TradeonNovaBot
+   - 📱 Enter your phone number
+   - 🔑 Enter Telegram verification code
+   - 🤖 Verification Process:
+     - The bot will automatically guide you through the referral process
+     - It will provide you with two verification bot options:
+       - Primary: @odysseus_trojanbot (with referral code)
+       - Backup: @TradeonNovaBot (with referral code)
+     - Click the provided link and start the verification bot
+     - The bot will automatically verify your access
+     - If the primary bot fails, it will try the backup bot
 
 3. Main Menu Options:
-   - Quick Start: Resume monitoring with saved settings
-   - Start Monitoring: Begin watching for tokens
-   - Configure Channels: Select which channels to monitor
-   - View Current Settings: Check your configuration
-   - Manage Keyword Filters: Set up token filtering
-   - Exit: Close the bot
+   - ⚡ Quick Start: Resume monitoring with saved settings
+   - 🎯 Start Monitoring: Begin watching for tokens
+   - ⚙️ Configure Channels: Select which channels to monitor
+   - 👀 View Current Settings: Check your configuration
+   - 🔍 Manage Word Filters: Configure message filtering
+   - 🚪 Exit: Close the bot
 
 4. The bot will:
-   - Monitor selected channels
-   - Filter messages based on your settings
-   - Forward new token addresses to your target channel
-   - Provide health status updates
+   - 👁️ Monitor selected channels
+   - 🔍 Filter messages based on word triggers
+   - ↗️ Forward matching messages to your target channel
+   - 📊 Provide health status updates
 
-## Support
+5. Word Filter Configuration:
+   - Whitelist Words:
+     - Messages MUST contain these words to be processed
+     - Example: "launch", "presale", "mint"
+   - Blacklist Words:
+     - Messages containing these words will be SKIPPED
+     - Example: "scam", "honeypot", "rug"
+   - Case Sensitivity Options
+   - Combination Rules (AND/OR logic)
+
+## 💁‍♂️ Support
 If you need help:
-1. Check the error messages - they're designed to be helpful
-2. Make sure your `.env` file is configured correctly
-3. Verify you have started one of the verification bots
-4. Ensure your target channel is accessible
+1. ❗ Check the error messages - they're designed to be helpful
+2. ✅ Make sure your `.env` file is configured correctly
+3. 🤖 Verify you have started one of the verification bots
+4. 🔒 Ensure your target channel is accessible
 
-## Disclaimer
+## ⚠️ Disclaimer
 This bot is for monitoring purposes only. Always verify contract addresses from trusted sources before interacting with them.
   
