@@ -142,6 +142,28 @@ python main.py
    - ↗️ Forward matching messages to your target channel
    - 📊 Provide health status updates
 
+5. Live Monitoring Commands:
+   - `feed`   - Toggle detailed message feed ON/OFF
+   - `stats`  - Show monitoring statistics
+   - `add`    - Add new channels while monitoring
+   - `list`   - Show currently monitored channels
+   - `remove` - Remove channels from monitoring
+   - `stop`   - Stop monitoring and return to menu
+
+6. Detailed Feed Display (when enabled):
+   - 📨 Shows all incoming messages
+   - 👤 Displays sender information
+   - 💬 Shows message content
+   - ⏩ Indicates why messages are skipped
+   - ✅ Shows successful token forwards
+
+7. Statistics Available:
+   - Messages Processed
+   - Tokens Found
+   - Unique Tokens
+   - Uptime
+   - Active Channels
+
 5. Word Filter Configuration:
    - Whitelist Words:
      - Messages MUST contain these words to be processed

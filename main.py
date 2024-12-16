@@ -478,16 +478,118 @@ class SimpleSolListener:
         print("\n🚀 Starting monitoring...")
         print(f"✨ Monitoring {len(self.source_chats)} chats for Solana contracts")
         print(f"📬 Forwarding to: {TARGET_CHAT}")
+        print("\n📋 Available Commands:")
+        print("--------------------------------------------------")
+        print("• feed   - Toggle detailed message feed ON/OFF")
+        print("• stats  - Show monitoring statistics")
+        print("• add    - Add new channels")
+        print("• list   - Show monitored channels")
+        print("• remove - Remove channels")
+        print("• stop   - Stop monitoring")
+        print("--------------------------------------------------")
+        print("Type a command and press Enter")
+        
+        # Feed display settings
+        self.show_detailed_feed = False
+        print("\n✨ Detailed feed is currently: OFF")
         
         # Register event handler for new messages
         @self.client.on(events.NewMessage())
         async def message_handler(event):
             await self.handle_new_message(event)
         
-        # Start health monitoring
-        asyncio.create_task(self.monitor_health())
+        # Start health monitoring in background
+        health_task = asyncio.create_task(self.monitor_health())
         
-        await self.client.run_until_disconnected()
+        # Start command listener
+        while True:
+            try:
+                print("\n⌨️ Enter command:", end=" ", flush=True)
+                command = await asyncio.get_event_loop().run_in_executor(None, input)
+                
+                if command.lower() == 'stop':
+                    print("\n🛑 Stopping monitoring...")
+                    break
+                    
+                elif command.lower() == 'feed':
+                    self.show_detailed_feed = not self.show_detailed_feed
+                    status = "ON" if self.show_detailed_feed else "OFF"
+                    print(f"\n✨ Detailed feed: {status}")
+                    
+                elif command.lower() == 'stats':
+                    uptime = time.time() - self.start_time
+                    hours = int(uptime // 3600)
+                    minutes = int((uptime % 3600) // 60)
+                    print("\n📊 Monitoring Statistics:")
+                    print("=" * 50)
+                    print(f"✓ Messages Processed: {self.processed_count}")
+                    print(f"✓ Tokens Found: {self.forwarded_count}")
+                    print(f"✓ Unique Tokens: {len(self.processed_tokens)}")
+                    print(f"✓ Uptime: {hours}h {minutes}m")
+                    print(f"✓ Active Channels: {len(self.source_chats)}")
+                    
+                elif command.lower() == 'add':
+                    new_chats = await self.display_chat_selection()
+                    if new_chats:
+                        for chat_id in new_chats:
+                            if chat_id not in self.source_chats:
+                                self.source_chats.append(chat_id)
+                                print(f"✅ Added new chat: {chat_id}")
+                        self.save_config()
+                        print(f"\n📊 Now monitoring {len(self.source_chats)} chats")
+                        
+                elif command.lower() == 'list':
+                    print("\n📋 Currently Monitored Channels:")
+                    print("=" * 50)
+                    for chat_id in self.source_chats:
+                        try:
+                            entity = await self.client.get_entity(int(chat_id))
+                            chat_name = entity.title if hasattr(entity, 'title') else str(chat_id)
+                            if str(chat_id) in self.filtered_users:
+                                user_count = len(self.filtered_users[str(chat_id)])
+                                print(f"✓ {chat_name} ({user_count} users)")
+                            else:
+                                print(f"✓ {chat_name} (all users)")
+                        except:
+                            print(f"✓ Chat {chat_id}")
+                            
+                elif command.lower() == 'remove':
+                    print("\n���️ Select channels to remove:")
+                    print("=" * 50)
+                    for i, chat_id in enumerate(self.source_chats):
+                        try:
+                            entity = await self.client.get_entity(int(chat_id))
+                            chat_name = entity.title if hasattr(entity, 'title') else str(chat_id)
+                            print(f"{i}: {chat_name}")
+                        except:
+                            print(f"{i}: Chat {chat_id}")
+                    
+                    try:
+                        choice = input("\nEnter channel numbers to remove (comma-separated): ")
+                        indices = [int(x.strip()) for x in choice.split(',')]
+                        removed = []
+                        for idx in sorted(indices, reverse=True):
+                            if 0 <= idx < len(self.source_chats):
+                                removed.append(self.source_chats.pop(idx))
+                        if removed:
+                            self.save_config()
+                            print(f"✅ Removed {len(removed)} channels")
+                            print(f"📊 Now monitoring {len(self.source_chats)} chats")
+                    except ValueError:
+                        print("❌ Invalid input. Please enter numbers separated by commas.")
+                
+                else:
+                    print("\n❌ Unknown command. Available commands: add, list, remove, feed, stats, stop")
+                    
+            except Exception as e:
+                print(f"\n❌ Error: {str(e)}")
+        
+        # Clean up
+        health_task.cancel()
+        try:
+            await health_task
+        except asyncio.CancelledError:
+            pass
 
     async def configure_channels(self):
         """Configure channels for monitoring"""
@@ -720,7 +822,7 @@ class SimpleSolListener:
             if int(chat_id) not in self.source_chats:
                 return
                 
-            # Log message receipt for debugging
+            # Get chat and sender info
             try:
                 chat = await self.client.get_entity(message.chat_id)
                 sender = await self.client.get_entity(message.sender_id) if message.sender_id else None
@@ -736,33 +838,38 @@ class SimpleSolListener:
                     else:
                         sender_name = f"ID: {message.sender_id}"
                 
-                logging.info(
-                    f"\nReceived message from {chat.title}\n"
-                    f"From: {sender_name or 'Unknown'}\n"
-                    f"Message: {message.message[:100]}..."
-                )
+                # Show detailed feed if enabled
+                if hasattr(self, 'show_detailed_feed') and self.show_detailed_feed:
+                    print(f"\n📨 New Message from {chat.title}")
+                    print(f"👤 From: {sender_name or 'Unknown'}")
+                    print(f"💬 Message: {message.message[:100]}..." if len(message.message) > 100 else message.message)
+                    
             except Exception as e:
-                logging.error(f"Error logging message details: {e}")
+                logging.error(f"Error getting message details: {e}")
                 
             # Check user filters
             if chat_id in self.filtered_users and message.sender_id not in self.filtered_users[chat_id]:
-                logging.info("Message filtered: User not in monitored list")
+                if hasattr(self, 'show_detailed_feed') and self.show_detailed_feed:
+                    print("⏩ Skipped: User not in monitored list")
                 return
                 
             # Check for blacklisted keywords
             if not await self.check_message_content(message):
-                logging.info("Message filtered: Contains blacklisted keyword")
+                if hasattr(self, 'show_detailed_feed') and self.show_detailed_feed:
+                    print("⏩ Skipped: Contains blacklisted keyword")
                 return
                 
             # Process message content
             content_type, ca = await self.process_message_content(message)
             if not ca:
-                logging.info("No CA found in message")
+                if hasattr(self, 'show_detailed_feed') and self.show_detailed_feed:
+                    print("⏩ No CA found in message")
                 return
                 
             # Skip if already processed
             if ca in self.processed_tokens:
-                print(f"⏩ Skipping duplicate token: {ca}")
+                if hasattr(self, 'show_detailed_feed') and self.show_detailed_feed:
+                    print(f"⏩ Skipping duplicate token: {ca}")
                 return
                 
             self.processed_tokens.append(ca)
