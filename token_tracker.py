@@ -182,8 +182,8 @@ class TokenTracker:
             # Get the current whole number multiple
             current_whole_multiple = int(multiple)
             
-            # Notify if we've hit a new whole number multiple above the last notification
-            if current_whole_multiple > last_notified:
+            # Only notify if we've hit a new whole number multiple above 1x
+            if current_whole_multiple > max(1, last_notified):
                 # Calculate time since entry
                 entry_time = datetime.fromisoformat(info['added_at'])
                 time_since_entry = datetime.now() - entry_time
