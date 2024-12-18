@@ -768,12 +768,13 @@ class SimpleSolListener:
                         print(f"✅ Started tracking token: {token_name} ({ca})")
                         print(f"📊 Initial Market Cap: ${initial_mcap:,.2f}")
             
-            # Check if it's a sell message
-            elif "Sell $" in message.message:
+            # Check for sell messages in real-time
+            text = message.message.lower()
+            if any(phrase in text for phrase in ["sell $", "sold $", "selling $", "exit $", "closed $", "🟢 sell success"]):
                 ca = await self.extract_ca_from_text(message.message)
                 if ca:
-                    self.token_tracker.remove_token(ca)
-                    print(f"❌ Stopped tracking token: {ca}")
+                    print(f"🔍 Found sell message for: {ca}")
+                    await self.token_tracker.handle_sell_message(message.message, ca)
             
         except Exception as e:
             logging.error(f"Error handling target message: {str(e)}")
