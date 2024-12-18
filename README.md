@@ -1,186 +1,147 @@
-# 🤖 Telegram Solana Contract Address Listener v1.0.0
+# Solana Token Listener Bot
 
-A Telegram bot designed to help you find and auto-buy new Solana tokens. It monitors specified Telegram channels for Solana contract addresses and instantly forwards them to your target channel for automated trading. Perfect for catching new token launches and trading opportunities as soon as they appear.
+A Telegram bot that monitors channels for Solana token contract addresses, forwards them to a target channel, and tracks token market cap multiples.
 
-## ✨ Features
-- 🚀 Instant token detection from multiple sources:
-  - DexScreener
-  - Birdeye
-  - Solscan
-  - Jupiter
-  - GMGN
-  - Raw contract addresses
-- 🔍 Advanced message filtering:
-  - ⚪ Whitelist word triggers (process messages containing specific words)
-  - ⚫ Blacklist word filters (skip messages containing unwanted words)
-  - Custom keyword combinations
-  - Case-sensitive options
-- 📡 Multiple channel monitoring
-- 👤 User-specific filtering
-- 📊 Health monitoring and statistics
-- 💾 Session persistence
+## Features
 
-## 🛠️ Installation
+### Token Monitoring
+- Monitors specified Telegram channels for Solana token contract addresses
+- Forwards found tokens to a target channel
+- Supports multiple source channels
+- User filtering per channel
+- Keyword blacklist/whitelist
 
-### 🐳 Option 1: Using Docker (Simplest)
-The easiest way to run the bot is using Docker:
+### Token Market Cap Tracking
+- Automatically tracks market cap for tokens you buy
+- Notifies you in Saved Messages when tokens hit new multipliers (1x, 2x, 3x, etc.)
+- Real-time monitoring with rate limit handling (30 calls/minute)
+- Batch processing for efficient tracking of multiple tokens
+- Tracks any whole number multiple (1x, 2x, 3x, ..., 15x, 22x, etc.)
 
-1. **Install Docker**:
-   - **Windows**: Install [Docker Desktop](https://www.docker.com/products/docker-desktop/)
-   - **Mac**: Install [Docker Desktop](https://www.docker.com/products/docker-desktop/)
-   - **Linux**: `sudo apt install docker.io docker-compose`
+### Interactive Menu
+- Quick start with saved settings
+- Channel configuration
+- User filtering
+- Keyword management
+- Token tracking status
+- Real-time monitoring statistics
 
-2. **Setup**:
-   ```bash
-   # Clone the repository
-   git clone https://github.com/your-username/solana-token-listener.git
-   cd solana-token-listener
+## Setup
 
-   # Copy and edit environment file
-   cp .env.sample .env
-   # Edit .env with your credentials
+1. Clone the repository:
+```bash
+git clone [repository-url]
+cd [repository-name]
+```
 
-   # Start the bot
-   docker-compose up -d
-
-   # View logs
-   docker-compose logs -f
-   ```
-
-The bot will automatically:
-- Build with all dependencies
-- Run in the background
-- Restart if it crashes
-- Persist data between restarts
-
-#### Data Persistence
-The bot stores its data in the `./data` directory, which is mounted as a volume in Docker:
-- Session information (no need to re-login)
-- Configured channels and filters
-- Processed tokens history
-- Logs and health data
-
-This means your settings and data are preserved even if you:
-- Restart the container
-- Update the bot
-- Switch between Docker and local running
-
-### 👨‍💻 Option 2: Using Dev Container (Best for Development)
-If you're using VS Code, this gives you the best development experience:
-
-#### Prerequisites
-1. Install Docker (see Option 1)
-2. Install VS Code
-3. Install "Dev Containers" extension in VS Code
-
-#### Setup
-1. Open project in VS Code
-2. Click "Reopen in Container" when prompted
-3. Everything is automatically configured!
-
-### 📦 Option 3: Traditional pip Installation
+2. Install dependencies:
 ```bash
 pip install -r requirements.txt
 ```
 
-### ⚙️ Environment Setup
-Copy the sample environment file:
+3. Create a `.env` file from the template:
 ```bash
-# Windows
-copy .env.sample .env
-
-# Linux/Mac
 cp .env.sample .env
 ```
 
-Edit `.env` with your credentials:
-```ini
-# Required
-API_ID=your_api_id        # From https://my.telegram.org
-API_HASH=your_api_hash    # From https://my.telegram.org
-TARGET_CHAT=your_channel  # Channel username or -100xxxxx format
+4. Fill in your `.env` file:
+```env
+# Get these from https://my.telegram.org/apps
+API_ID=your_api_id
+API_HASH=your_api_hash
 
-# Optional
+# Target chat for forwarding tokens (username without @ or channel ID)
+TARGET_CHAT=your_target_chat
+
+# Optional settings
 DEBUG=false
 ```
 
-## 📚 Usage
+## Usage
 
 1. Start the bot:
 ```bash
-# If using Docker:
-docker-compose up -d
-docker-compose logs -f
-
-# If installed locally:
 python main.py
 ```
 
-2. First-time Setup:
-   - 📱 Enter your phone number
-   - 🔑 Enter Telegram verification code
-   - 🤖 Verification Process:
-     - The bot will automatically guide you through the referral process
-     - It will provide you with two verification bot options:
-       - Primary: @odysseus_trojanbot (with referral code)
-       - Backup: @TradeonNovaBot (with referral code)
-     - Click the provided link and start the verification bot
-     - The bot will automatically verify your access
-     - If the primary bot fails, it will try the backup bot
+2. Main Menu Options:
+- `0`: Quick Start - Resume monitoring with saved settings
+- `1`: Start Monitoring
+- `2`: Configure Channels
+- `3`: View Current Settings
+- `4`: Manage Keyword Filters
+- `5`: View Tracked Tokens
+- `6`: Exit
 
-3. Main Menu Options:
-   - ⚡ Quick Start: Resume monitoring with saved settings
-   - 🎯 Start Monitoring: Begin watching for tokens
-   - ⚙️ Configure Channels: Select which channels to monitor
-   - 👀 View Current Settings: Check your configuration
-   - 🔍 Manage Word Filters: Configure message filtering
-   - 🚪 Exit: Close the bot
+3. Monitoring Commands:
+- `feed`: Toggle detailed message feed
+- `stats`: Show monitoring statistics
+- `add`: Add new channels
+- `list`: Show monitored channels
+- `remove`: Remove channels
+- `tokens`: Show tracked tokens
+- `stop`: Stop monitoring
 
-4. The bot will:
-   - 👁️ Monitor selected channels
-   - 🔍 Filter messages based on word triggers
-   - ↗️ Forward matching messages to your target channel
-   - 📊 Provide health status updates
+## Token Tracking
 
-5. Live Monitoring Commands:
-   - `feed`   - Toggle detailed message feed ON/OFF
-   - `stats`  - Show monitoring statistics
-   - `add`    - Add new channels while monitoring
-   - `list`   - Show currently monitored channels
-   - `remove` - Remove channels from monitoring
-   - `stop`   - Stop monitoring and return to menu
+### How It Works
+1. When you buy a token (message starting with "Buy $"), the bot:
+   - Extracts the contract address
+   - Records initial market cap
+   - Starts tracking the token
 
-6. Detailed Feed Display (when enabled):
-   - 📨 Shows all incoming messages
-   - 👤 Displays sender information
-   - 💬 Shows message content
-   - ⏩ Indicates why messages are skipped
-   - ✅ Shows successful token forwards
+2. The tracker:
+   - Checks market cap every minute (respecting API cache)
+   - Calculates current multiple from initial market cap
+   - Sends notification when new whole number multiples are hit
 
-7. Statistics Available:
-   - Messages Processed
-   - Tokens Found
-   - Unique Tokens
-   - Uptime
-   - Active Channels
+3. When you sell a token (message starting with "Sell $"):
+   - Token is removed from tracking
+   - No more notifications for that token
 
-5. Word Filter Configuration:
-   - Whitelist Words:
-     - Messages MUST contain these words to be processed
-     - Example: "launch", "presale", "mint"
-   - Blacklist Words:
-     - Messages containing these words will be SKIPPED
-     - Example: "scam", "honeypot", "rug"
-   - Case Sensitivity Options
-   - Combination Rules (AND/OR logic)
+### Notifications
+You'll receive notifications in your Telegram Saved Messages when tokens hit new multipliers:
+```
+💰 Token Multiple Alert 💰
 
-## 💁‍♂️ Support
-If you need help:
-1. ❗ Check the error messages - they're designed to be helpful
-2. ✅ Make sure your `.env` file is configured correctly
-3. 🤖 Verify you have started one of the verification bots
-4. 🔒 Ensure your target channel is accessible
+🪙 Token: TOKEN_NAME
+🎯 Multiple: 5x
 
-## ⚠️ Disclaimer
-This bot is for monitoring purposes only. Always verify contract addresses from trusted sources before interacting with them.
+📊 Market Cap:
+  • Initial: $100,000.00
+  • Current: $500,000.00
+  • Change: +$400,000.00
+
+⏱ Time since entry: 2h 30m
+
+🔗 Quick Links:
+• Birdeye: https://birdeye.so/token/...
+• DexScreener: https://dexscreener.com/solana/...
+• Solscan: https://solscan.io/token/...
+```
+
+### Rate Limiting
+- Respects GeckoTerminal API rate limit (30 calls/minute)
+- Automatically batches requests for multiple tokens
+- Adapts check frequency based on number of tracked tokens
+
+## Files
+- `main.py`: Main bot logic and Telegram interface
+- `token_tracker.py`: Token market cap tracking system
+- `tracked_tokens.json`: Persistent storage of tracked tokens
+- `.env`: Configuration and API credentials
+- `requirements.txt`: Python dependencies
+
+## Dependencies
+- telethon
+- python-dotenv
+- aiohttp
+- asyncio
+- logging
+
+## Notes
+- The bot uses GeckoTerminal's API which updates every 10-20 seconds
+- Market cap data is cached for 1 minute
+- Token tracking data is saved between bot restarts
+- Notifications are sent to your Telegram Saved Messages by default
   

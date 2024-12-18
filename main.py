@@ -22,6 +22,8 @@ import time
 from pathlib import Path
 from dotenv import load_dotenv
 import sys
+from token_tracker import TokenTracker
+from datetime import datetime
 
 __version__ = "1.0.0"
 
@@ -117,12 +119,15 @@ class SimpleSolListener:
         session = StringSession(self.config.get('session_string', ''))
         self.client = TelegramClient(session, API_ID, API_HASH)
         
+        # Initialize token tracker with notification target from env
+        tracking_chat = os.getenv('TRACKING_CHAT', 'me')  # Default to 'me' if not set
+        self.token_tracker = TokenTracker(self.client, notification_target=tracking_chat)
+        
         self.processed_tokens = self.load_processed_tokens()
         self.start_time = time.time()
         
         self.processed_count = 0
         self.forwarded_count = 0
-        # Load saved source chats from config
         self.source_chats = self.config.get('source_chats', [])
         self.filtered_users = self.config.get('filtered_users', {})
         self.dialogs_cache = {}
@@ -417,8 +422,9 @@ class SimpleSolListener:
             print("2. Configure Channels")
             print("3. View Current Settings")
             print("4. Manage Keyword Filters")
-            print("5. Exit\n")
-            choice = input("Enter your choice (0-5): ").strip()
+            print("5. View Tracked Tokens")  # New option
+            print("6. Exit\n")
+            choice = input("Enter your choice (0-6): ").strip()
             
             try:
                 if choice == "0":
@@ -454,6 +460,8 @@ class SimpleSolListener:
                 elif choice == "4":
                     await self.manage_keyword_filters()
                 elif choice == "5":
+                    await self.view_tracked_tokens()  # New method
+                elif choice == "6":
                     print("\n👋 Goodbye!")
                     await self.client.disconnect()
                     return False
@@ -466,6 +474,30 @@ class SimpleSolListener:
                     await self.client.connect()
         
         return True
+
+    async def view_tracked_tokens(self):
+        """Display currently tracked tokens and their status"""
+        print("\n📊 Currently Tracked Tokens")
+        print("=" * 50)
+        
+        if not self.token_tracker.tracked_tokens:
+            print("No tokens currently being tracked.")
+            input("\nPress Enter to continue...")
+            return
+            
+        for address, info in self.token_tracker.tracked_tokens.items():
+            entry_time = datetime.fromisoformat(info['added_at'])
+            time_since_entry = datetime.now() - entry_time
+            hours = time_since_entry.total_seconds() / 3600
+            
+            print(f"\n🪙 Token: {info['name']}")
+            print(f"📈 Last Multiple: {info['last_notified_multiple']}x")
+            print(f"💰 Initial MCap: ${info['initial_mcap']:,.2f}")
+            print(f"⏱ Time Tracking: {int(hours)}h {int((hours % 1) * 60)}m")
+            print(f"🔗 Address: {address}")
+            print("-" * 50)
+        
+        input("\nPress Enter to continue...")
 
     async def start_monitoring(self):
         """Start monitoring selected chats"""
@@ -485,6 +517,7 @@ class SimpleSolListener:
         print("• add    - Add new channels")
         print("• list   - Show monitored channels")
         print("• remove - Remove channels")
+        print("• tokens - Show tracked tokens")  # New command
         print("• stop   - Stop monitoring")
         print("--------------------------------------------------")
         print("Type a command and press Enter")
@@ -492,6 +525,9 @@ class SimpleSolListener:
         # Feed display settings
         self.show_detailed_feed = False
         print("\n✨ Detailed feed is currently: OFF")
+        
+        # Start the token tracker monitoring in background
+        token_tracker_task = asyncio.create_task(self.token_tracker.check_and_notify_multipliers())
         
         # Register event handler for new messages
         @self.client.on(events.NewMessage())
@@ -520,13 +556,17 @@ class SimpleSolListener:
                     uptime = time.time() - self.start_time
                     hours = int(uptime // 3600)
                     minutes = int((uptime % 3600) // 60)
-                    print("\n📊 Monitoring Statistics:")
+                    print("\n���� Monitoring Statistics:")
                     print("=" * 50)
                     print(f"✓ Messages Processed: {self.processed_count}")
                     print(f"✓ Tokens Found: {self.forwarded_count}")
                     print(f"✓ Unique Tokens: {len(self.processed_tokens)}")
+                    print(f"✓ Tracked Tokens: {len(self.token_tracker.tracked_tokens)}")
                     print(f"✓ Uptime: {hours}h {minutes}m")
                     print(f"✓ Active Channels: {len(self.source_chats)}")
+                    
+                elif command.lower() == 'tokens':
+                    await self.view_tracked_tokens()
                     
                 elif command.lower() == 'add':
                     new_chats = await self.display_chat_selection()
@@ -554,7 +594,7 @@ class SimpleSolListener:
                             print(f"✓ Chat {chat_id}")
                             
                 elif command.lower() == 'remove':
-                    print("\n���️ Select channels to remove:")
+                    print("\n🗑️ Select channels to remove:")
                     print("=" * 50)
                     for i, chat_id in enumerate(self.source_chats):
                         try:
@@ -579,17 +619,55 @@ class SimpleSolListener:
                         print("❌ Invalid input. Please enter numbers separated by commas.")
                 
                 else:
-                    print("\n❌ Unknown command. Available commands: add, list, remove, feed, stats, stop")
+                    print("\n❌ Unknown command. Available commands: add, list, remove, feed, stats, tokens, stop")
                     
             except Exception as e:
                 print(f"\n❌ Error: {str(e)}")
         
         # Clean up
+        token_tracker_task.cancel()
         health_task.cancel()
         try:
+            await token_tracker_task
             await health_task
         except asyncio.CancelledError:
             pass
+
+    async def extract_mcap_from_message(self, text: str) -> float:
+        """Extract market cap value from message text"""
+        # Look for patterns like "MC: $161.83K" or "MC: $3.07M"
+        mcap_pattern = r'MC:\s*\$?([\d,.]+)([KMB]?)'
+        match = re.search(mcap_pattern, text)
+        if match:
+            value = float(match.group(1).replace(',', ''))
+            multiplier = {
+                'K': 1_000,
+                'M': 1_000_000,
+                'B': 1_000_000_000,
+                '': 1
+            }[match.group(2)]
+            return value * multiplier
+        return None
+
+    async def handle_new_messages(self, event):
+        """Handle incoming messages"""
+        if event.message.to_id.user_id == self.client.user_id:  # Message to self
+            # Check if it's a buy message
+            if "Buy $" in event.message.text:
+                ca = await self.extract_ca_from_text(event.message.text)
+                mcap = await self.extract_mcap_from_message(event.message.text)
+                if ca and mcap:
+                    # Extract token name
+                    name_match = re.search(r'Buy \$([^\s—]+)', event.message.text)
+                    if name_match:
+                        token_name = name_match.group(1)
+                        await self.token_tracker.add_token(ca, token_name, mcap)
+            
+            # Check if it's a sell message
+            elif "Sell $" in event.message.text:
+                ca = await self.extract_ca_from_text(event.message.text)
+                if ca:
+                    self.token_tracker.remove_token(ca)
 
     async def configure_channels(self):
         """Configure channels for monitoring"""

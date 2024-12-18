@@ -100,3 +100,8 @@ coverage.xml
 .hypothesis/
 .pytest_cache/
 cover/
+
+# Project specific
+tracked_tokens.json
+solana_listener.session
+channel_analyzer.py
