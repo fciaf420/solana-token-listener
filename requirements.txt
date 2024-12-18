@@ -1,3 +1,4 @@
 telethon
 python-dotenv
-aiohttp
+aiohttp>=3.8.0
+# asyncio and logging are part of Python standard library
