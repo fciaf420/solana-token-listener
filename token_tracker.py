@@ -162,14 +162,17 @@ class TokenTracker:
         """Process a single token"""
         info = self.tracked_tokens[address]
         
+        # Get fresh timestamp for this check
+        check_time = time.time()
+        
         # Skip if checked too recently
-        if current_time - info.get('last_check', 0) < self.MIN_CHECK_INTERVAL:
+        if check_time - info.get('last_check', 0) < self.MIN_CHECK_INTERVAL:
             return
             
         # Get current market cap from Jupiter API
         current_mcap = await self.get_current_mcap(address)
         if current_mcap is not None:
-            info['last_check'] = current_time
+            info['last_check'] = check_time  # Use fresh timestamp
             multiple = current_mcap / info['initial_mcap']
             last_notified = info['last_notified_multiple']
             
@@ -208,7 +211,7 @@ class TokenTracker:
                 self.save_tracked_tokens()
         else:
             # Log failed check attempt
-            info['last_check'] = current_time  # Still update last check to prevent spam
+            info['last_check'] = check_time  # Use fresh timestamp even for failures
             info['failed_checks'] = info.get('failed_checks', 0) + 1
             
             # Only notify after 5 consecutive failures
