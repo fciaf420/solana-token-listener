@@ -508,8 +508,9 @@ class SimpleSolListener:
             return
             
         print("\n🚀 Starting monitoring...")
-        print(f"✨ Monitoring {len(self.source_chats)} chats for Solana contracts")
+        print(f"✨ Monitoring {len(self.source_chats)} chats for new tokens")
         print(f"📬 Forwarding to: {TARGET_CHAT}")
+        print(f"📊 Tracking market caps in: {TARGET_CHAT}")
         print("\n📋 Available Commands:")
         print("--------------------------------------------------")
         print("• feed   - Toggle detailed message feed ON/OFF")
@@ -517,7 +518,7 @@ class SimpleSolListener:
         print("• add    - Add new channels")
         print("• list   - Show monitored channels")
         print("• remove - Remove channels")
-        print("• tokens - Show tracked tokens")  # New command
+        print("• tokens - Show tracked tokens")
         print("• stop   - Stop monitoring")
         print("--------------------------------------------------")
         print("Type a command and press Enter")
@@ -529,10 +530,16 @@ class SimpleSolListener:
         # Start the token tracker monitoring in background
         token_tracker_task = asyncio.create_task(self.token_tracker.check_and_notify_multipliers())
         
-        # Register event handler for new messages
+        # Register event handler for source chats (token forwarding)
         @self.client.on(events.NewMessage())
-        async def message_handler(event):
-            await self.handle_new_message(event)
+        async def source_message_handler(event):
+            if event.chat_id in self.source_chats:
+                await self.handle_source_message(event)
+        
+        # Register event handler for target chat (market cap tracking)
+        @self.client.on(events.NewMessage(chats=TARGET_CHAT))
+        async def target_message_handler(event):
+            await self.handle_target_message(event)
         
         # Start health monitoring in background
         health_task = asyncio.create_task(self.monitor_health())
@@ -556,11 +563,10 @@ class SimpleSolListener:
                     uptime = time.time() - self.start_time
                     hours = int(uptime // 3600)
                     minutes = int((uptime % 3600) // 60)
-                    print("\n���� Monitoring Statistics:")
+                    print("\n📊 Monitoring Statistics:")
                     print("=" * 50)
                     print(f"✓ Messages Processed: {self.processed_count}")
-                    print(f"✓ Tokens Found: {self.forwarded_count}")
-                    print(f"✓ Unique Tokens: {len(self.processed_tokens)}")
+                    print(f"�� Tokens Found: {self.forwarded_count}")
                     print(f"✓ Tracked Tokens: {len(self.token_tracker.tracked_tokens)}")
                     print(f"✓ Uptime: {hours}h {minutes}m")
                     print(f"✓ Active Channels: {len(self.source_chats)}")
@@ -633,6 +639,145 @@ class SimpleSolListener:
         except asyncio.CancelledError:
             pass
 
+    async def handle_source_message(self, event):
+        """Process new messages from source chats for token forwarding"""
+        try:
+            # Get the message
+            message = event.message
+            
+            # Skip if message is None
+            if not message:
+                return
+                
+            # Get chat and sender info
+            try:
+                chat = await self.client.get_entity(message.chat_id)
+                sender = await self.client.get_entity(message.sender_id) if message.sender_id else None
+                sender_name = None
+                
+                if sender:
+                    if hasattr(sender, 'username') and sender.username:
+                        sender_name = f"@{sender.username}"
+                    elif hasattr(sender, 'title'):  # It's a channel
+                        sender_name = f"Channel: {sender.title}"
+                    elif hasattr(sender, 'first_name'):  # It's a user
+                        sender_name = sender.first_name
+                    else:
+                        sender_name = f"ID: {message.sender_id}"
+                
+                # Show detailed feed if enabled
+                if hasattr(self, 'show_detailed_feed') and self.show_detailed_feed:
+                    print(f"\n📨 New Message from {chat.title}")
+                    print(f"👤 From: {sender_name or 'Unknown'}")
+                    print(f"💬 Message: {message.message[:100]}..." if len(message.message) > 100 else message.message)
+                    
+            except Exception as e:
+                logging.error(f"Error getting message details: {e}")
+                
+            # Check user filters
+            chat_id = str(message.chat_id)
+            if chat_id in self.filtered_users and message.sender_id not in self.filtered_users[chat_id]:
+                if hasattr(self, 'show_detailed_feed') and self.show_detailed_feed:
+                    print("⏩ Skipped: User not in monitored list")
+                return
+                
+            # Check for blacklisted keywords
+            if not await self.check_message_content(message):
+                if hasattr(self, 'show_detailed_feed') and self.show_detailed_feed:
+                    print("⏩ Skipped: Contains blacklisted keyword")
+                return
+                
+            # Process message content
+            content_type, ca = await self.process_message_content(message)
+            if not ca:
+                if hasattr(self, 'show_detailed_feed') and self.show_detailed_feed:
+                    print("⏩ No CA found in message")
+                return
+                
+            # Skip if already processed
+            if ca in self.processed_tokens:
+                if hasattr(self, 'show_detailed_feed') and self.show_detailed_feed:
+                    print(f"⏩ Skipping duplicate token: {ca}")
+                return
+                
+            self.processed_tokens.append(ca)
+            self.save_processed_tokens()
+            
+            # Try to forward the message
+            try:
+                await message.forward_to(TARGET_CHAT)
+                print(f"✅ Forwarded new token: {ca}")
+                logging.info(f"Successfully forwarded CA: {ca}")
+                self.forwarded_count += 1
+            except Exception as forward_error:
+                # If forwarding fails due to protection, send as new message
+                if "protected chat" in str(forward_error):
+                    try:
+                        # Create a formatted message with source info
+                        source_info = f"Source: {chat.title}"
+                        if sender_name:
+                            source_info += f" | From: {sender_name}"
+                            
+                        formatted_message = (
+                            f"🔔 New Token Detected\n\n"
+                            f"💎 CA: `{ca}`\n\n"
+                            f"🔍 {source_info}\n\n"
+                            f"Quick Links:\n"
+                            f"• Birdeye: https://birdeye.so/token/{ca}\n"
+                            f"• Solscan: https://solscan.io/token/{ca}\n"
+                            f"• Jupiter: https://jup.ag/swap/SOL-{ca}"
+                        )
+                        
+                        await self.client.send_message(TARGET_CHAT, formatted_message, parse_mode='markdown')
+                        print(f"✅ Sent new token message: {ca}")
+                        logging.info(f"Successfully sent CA as new message: {ca}")
+                        self.forwarded_count += 1
+                    except Exception as send_error:
+                        print(f"❌ Error sending message: {str(send_error)}")
+                        logging.error(f"Error sending message: {str(send_error)}")
+                else:
+                    print(f"❌ Error forwarding message: {str(forward_error)}")
+                    logging.error(f"Error forwarding message: {str(forward_error)}")
+            
+            self.processed_count += 1
+            
+        except Exception as e:
+            logging.error(f"Error handling message: {str(e)}")
+            logging.exception("Full traceback:")
+
+    async def handle_target_message(self, event):
+        """Process messages from target chat for market cap tracking"""
+        try:
+            # Get the message
+            message = event.message
+            
+            # Skip if message is None
+            if not message:
+                return
+            
+            # Check for buy/sell messages and handle token tracking
+            if "Buy $" in message.message:
+                ca = await self.extract_ca_from_text(message.message)
+                mcap = await self.extract_mcap_from_message(message.message)
+                if ca and mcap:
+                    # Extract token name
+                    name_match = re.search(r'Buy \$([^\s—]+)', message.message)
+                    if name_match:
+                        token_name = name_match.group(1)
+                        await self.token_tracker.add_token(ca, token_name, mcap)
+                        print(f"✅ Started tracking token: {token_name} ({ca})")
+            
+            # Check if it's a sell message
+            elif "Sell $" in message.message:
+                ca = await self.extract_ca_from_text(message.message)
+                if ca:
+                    self.token_tracker.remove_token(ca)
+                    print(f"❌ Stopped tracking token: {ca}")
+            
+        except Exception as e:
+            logging.error(f"Error handling target message: {str(e)}")
+            logging.exception("Full traceback:")
+
     async def extract_mcap_from_message(self, text: str) -> float:
         """Extract market cap value from message text"""
         # Look for patterns like "MC: $161.83K" or "MC: $3.07M"
@@ -648,26 +793,6 @@ class SimpleSolListener:
             }[match.group(2)]
             return value * multiplier
         return None
-
-    async def handle_new_messages(self, event):
-        """Handle incoming messages"""
-        if event.message.to_id.user_id == self.client.user_id:  # Message to self
-            # Check if it's a buy message
-            if "Buy $" in event.message.text:
-                ca = await self.extract_ca_from_text(event.message.text)
-                mcap = await self.extract_mcap_from_message(event.message.text)
-                if ca and mcap:
-                    # Extract token name
-                    name_match = re.search(r'Buy \$([^\s—]+)', event.message.text)
-                    if name_match:
-                        token_name = name_match.group(1)
-                        await self.token_tracker.add_token(ca, token_name, mcap)
-            
-            # Check if it's a sell message
-            elif "Sell $" in event.message.text:
-                ca = await self.extract_ca_from_text(event.message.text)
-                if ca:
-                    self.token_tracker.remove_token(ca)
 
     async def configure_channels(self):
         """Configure channels for monitoring"""
@@ -884,116 +1009,6 @@ class SimpleSolListener:
                 return False
                 
         return True
-
-    async def handle_new_message(self, event):
-        """Process new messages from monitored chats"""
-        try:
-            # Get the message
-            message = event.message
-            
-            # Skip if message is None
-            if not message:
-                return
-                
-            # Check if message is from a monitored chat
-            chat_id = str(message.chat_id)
-            if int(chat_id) not in self.source_chats:
-                return
-                
-            # Get chat and sender info
-            try:
-                chat = await self.client.get_entity(message.chat_id)
-                sender = await self.client.get_entity(message.sender_id) if message.sender_id else None
-                sender_name = None
-                
-                if sender:
-                    if hasattr(sender, 'username') and sender.username:
-                        sender_name = f"@{sender.username}"
-                    elif hasattr(sender, 'title'):  # It's a channel
-                        sender_name = f"Channel: {sender.title}"
-                    elif hasattr(sender, 'first_name'):  # It's a user
-                        sender_name = sender.first_name
-                    else:
-                        sender_name = f"ID: {message.sender_id}"
-                
-                # Show detailed feed if enabled
-                if hasattr(self, 'show_detailed_feed') and self.show_detailed_feed:
-                    print(f"\n📨 New Message from {chat.title}")
-                    print(f"👤 From: {sender_name or 'Unknown'}")
-                    print(f"💬 Message: {message.message[:100]}..." if len(message.message) > 100 else message.message)
-                    
-            except Exception as e:
-                logging.error(f"Error getting message details: {e}")
-                
-            # Check user filters
-            if chat_id in self.filtered_users and message.sender_id not in self.filtered_users[chat_id]:
-                if hasattr(self, 'show_detailed_feed') and self.show_detailed_feed:
-                    print("⏩ Skipped: User not in monitored list")
-                return
-                
-            # Check for blacklisted keywords
-            if not await self.check_message_content(message):
-                if hasattr(self, 'show_detailed_feed') and self.show_detailed_feed:
-                    print("⏩ Skipped: Contains blacklisted keyword")
-                return
-                
-            # Process message content
-            content_type, ca = await self.process_message_content(message)
-            if not ca:
-                if hasattr(self, 'show_detailed_feed') and self.show_detailed_feed:
-                    print("⏩ No CA found in message")
-                return
-                
-            # Skip if already processed
-            if ca in self.processed_tokens:
-                if hasattr(self, 'show_detailed_feed') and self.show_detailed_feed:
-                    print(f"⏩ Skipping duplicate token: {ca}")
-                return
-                
-            self.processed_tokens.append(ca)
-            self.save_processed_tokens()
-            
-            # Try to forward the message
-            try:
-                await message.forward_to(TARGET_CHAT)
-                print(f"✅ Forwarded new token: {ca}")
-                logging.info(f"Successfully forwarded CA: {ca}")
-                self.forwarded_count += 1
-            except Exception as forward_error:
-                # If forwarding fails due to protection, send as new message
-                if "protected chat" in str(forward_error):
-                    try:
-                        # Create a formatted message with source info
-                        source_info = f"Source: {chat.title}"
-                        if sender_name:
-                            source_info += f" | From: {sender_name}"
-                            
-                        formatted_message = (
-                            f"🔔 New Token Detected\n\n"
-                            f"💎 CA: `{ca}`\n\n"
-                            f"🔍 {source_info}\n\n"
-                            f"Quick Links:\n"
-                            f"• Birdeye: https://birdeye.so/token/{ca}\n"
-                            f"• Solscan: https://solscan.io/token/{ca}\n"
-                            f"• Jupiter: https://jup.ag/swap/SOL-{ca}"
-                        )
-                        
-                        await self.client.send_message(TARGET_CHAT, formatted_message, parse_mode='markdown')
-                        print(f"✅ Sent new token message: {ca}")
-                        logging.info(f"Successfully sent CA as new message: {ca}")
-                        self.forwarded_count += 1
-                    except Exception as send_error:
-                        print(f"❌ Error sending message: {str(send_error)}")
-                        logging.error(f"Error sending message: {str(send_error)}")
-                else:
-                    print(f"❌ Error forwarding message: {str(forward_error)}")
-                    logging.error(f"Error forwarding message: {str(forward_error)}")
-            
-            self.processed_count += 1
-            
-        except Exception as e:
-            logging.error(f"Error handling message: {str(e)}")
-            logging.exception("Full traceback:")
 
     async def forward_message(self, message, contract_address, content_type="text"):
         """Forward contract address to target chat"""
