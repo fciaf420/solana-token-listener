@@ -121,9 +121,13 @@ class TokenTracker:
                         data = await response.json()
                         mcap = float(data['data']['attributes'].get('market_cap_usd', 0))
                         return mcap
-                    return None
+                    else:
+                        error_msg = f"❌ API Error ({response.status}): Could not fetch market cap for {address}"
+                        logging.error(error_msg)
+                        return None
             except Exception as e:
-                logging.error(f"Error fetching market cap for {address}: {str(e)}")
+                error_msg = f"❌ Network Error: Could not fetch market cap for {address}\nError: {str(e)}"
+                logging.error(error_msg)
                 return None
 
     async def process_token(self, address: str, current_time: float):
@@ -135,7 +139,7 @@ class TokenTracker:
             return
             
         current_mcap = await self.get_current_mcap(address)
-        if current_mcap:
+        if current_mcap is not None:
             info['last_check'] = current_time
             multiple = current_mcap / info['initial_mcap']
             last_notified = info['last_notified_multiple']
@@ -167,55 +171,82 @@ class TokenTracker:
                 await self.client.send_message(self.notification_target, message)
                 self.tracked_tokens[address]['last_notified_multiple'] = current_whole_multiple
                 self.save_tracked_tokens()
+        else:
+            # Log failed check attempt
+            info['last_check'] = current_time  # Still update last check to prevent spam
+            info['failed_checks'] = info.get('failed_checks', 0) + 1
+            
+            # Only notify after 5 consecutive failures
+            if info['failed_checks'] >= 5:
+                info['failed_checks'] = 0  # Reset counter
+            
+            self.save_tracked_tokens()
 
     async def check_and_notify_multipliers(self):
+        """Check token market caps and notify on multipliers"""
+        error_notification_threshold = 5  # Only notify after this many errors
+        error_count_total = 0  # Track total errors across checks
+        
         while True:
             try:
                 current_time = time.time()
                 num_tokens = len(self.tracked_tokens)
                 
                 if num_tokens == 0:
-                    await asyncio.sleep(20)
+                    await asyncio.sleep(60)  # Sleep for a minute if no tokens
                     continue
                 
-                # Calculate optimal batch size and delay
-                # We want to spread our rate limit across all tokens while respecting cache time
-                calls_per_check = 1  # Each token needs 1 API call
-                total_calls_needed = num_tokens * calls_per_check
+                # Process all tokens at once, since we're only checking once per minute
+                batch = list(self.tracked_tokens.keys())
                 
-                # Calculate how many complete checks we can do in a rate limit window
-                max_checks_per_window = self.RATE_LIMIT_CALLS // total_calls_needed
-                
-                if max_checks_per_window == 0:
-                    # If we can't check all tokens in one window, we need to batch them
-                    batch_size = self.RATE_LIMIT_CALLS // 2  # Use half our rate limit per batch
-                    delay = self.RATE_LIMIT_WINDOW / 2  # Split window in half
-                else:
-                    # We can check all tokens multiple times per window
-                    batch_size = num_tokens
-                    delay = self.RATE_LIMIT_WINDOW / max_checks_per_window
-                
-                # Get next batch of tokens to process
-                batch = self.get_next_batch(batch_size)
+                success_count = 0
+                error_count = 0
                 
                 # Process batch
                 for address in batch:
                     try:
                         await self.process_token(address, current_time)
+                        success_count += 1
+                        error_count_total = 0  # Reset total error count on success
                     except Exception as e:
+                        error_count += 1
+                        error_count_total += 1
                         logging.error(f"Error processing token {address}: {str(e)}")
                 
-                # Log batch processing info
+                # Log processing info
                 logging.info(
-                    f"Processed batch of {len(batch)} tokens. "
-                    f"Total tokens: {num_tokens}. "
-                    f"Batch size: {batch_size}. "
-                    f"Delay: {delay:.1f}s"
+                    f"Processed {len(batch)} tokens "
+                    f"(Success: {success_count}, Errors: {error_count}). "
+                    f"Next check in 60 seconds."
                 )
                 
-                # Wait before next batch
-                await asyncio.sleep(delay)
+                # Only notify if we've hit the error threshold
+                if error_count_total >= error_notification_threshold:
+                    await self.client.send_message(
+                        self.notification_target,
+                        f"⚠️ Market Cap Check Issues\n\n"
+                        f"Multiple errors occurred while checking market caps.\n"
+                        f"This might indicate API issues or network problems.\n\n"
+                        f"Will continue checking every minute."
+                    )
+                    error_count_total = 0  # Reset after notification
+                
+                # Wait a full minute before next check
+                await asyncio.sleep(60)
                 
             except Exception as e:
-                logging.error(f"Error in check_and_notify_multipliers: {str(e)}")
-                await asyncio.sleep(20)
+                error_msg = f"Error in market cap checker: {str(e)}"
+                logging.error(error_msg)
+                error_count_total += 1
+                
+                # Only notify on persistent errors
+                if error_count_total >= error_notification_threshold:
+                    await self.client.send_message(
+                        self.notification_target,
+                        f"⚠️ Market Cap Checker Error\n\n"
+                        f"Multiple errors occurred. This might indicate a serious issue.\n"
+                        f"Will continue retrying every minute."
+                    )
+                    error_count_total = 0  # Reset after notification
+                
+                await asyncio.sleep(60)  # Still wait a minute on error
