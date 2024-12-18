@@ -13,7 +13,7 @@ class TokenTracker:
     def __init__(self, telegram_client, notification_target: str = 'me'):
         self.tracked_tokens = {}  # {token_address: {initial_mcap, name, symbol, last_notified_multiple}}
         self.client = telegram_client
-        self.GECKO_BASE_URL = "https://api.geckoterminal.com/api/v2"
+        self.JUPITER_BASE_URL = "https://api.jup.ag/price/v2"
         self.notification_target = notification_target  # Where to send notifications ('me' for Saved Messages)
         
         # Initialize tracked_tokens.json if it doesn't exist
@@ -25,10 +25,10 @@ class TokenTracker:
         
         self.load_tracked_tokens()
         
-        # Rate limiting
-        self.RATE_LIMIT_CALLS = 30
+        # Rate limiting for Jupiter API (600 requests per minute)
+        self.RATE_LIMIT_CALLS = 600
         self.RATE_LIMIT_WINDOW = 60  # seconds
-        self.MIN_CHECK_INTERVAL = 60  # Minimum time between checks for each token (cache time)
+        self.MIN_CHECK_INTERVAL = 60  # Minimum time between checks for each token
         self.api_call_times = []
         
         # Batch processing
@@ -115,18 +115,46 @@ class TokenTracker:
         
         async with aiohttp.ClientSession() as session:
             try:
-                url = f"{self.GECKO_BASE_URL}/networks/solana/tokens/{address}"
+                # Get price in USDC
+                url = f"{self.JUPITER_BASE_URL}?ids={address}"
                 async with session.get(url) as response:
                     if response.status == 200:
                         data = await response.json()
-                        mcap = float(data['data']['attributes'].get('market_cap_usd', 0))
-                        return mcap
+                        if data and isinstance(data, dict) and 'data' in data:
+                            token_data = data['data'].get(address)
+                            if token_data and 'price' in token_data:
+                                price = float(token_data['price'])
+                                
+                                # Get token supply from Solana RPC
+                                supply_url = "https://api.mainnet-beta.solana.com"
+                                supply_payload = {
+                                    "jsonrpc": "2.0",
+                                    "id": 1,
+                                    "method": "getTokenSupply",
+                                    "params": [address]
+                                }
+                                async with session.post(supply_url, json=supply_payload) as supply_response:
+                                    if supply_response.status == 200:
+                                        supply_data = await supply_response.json()
+                                        if supply_data and 'result' in supply_data:
+                                            supply = float(supply_data['result']['value']['amount']) / 10 ** supply_data['result']['value']['decimals']
+                                            mcap = price * supply
+                                            logging.info(f"Got market cap for {address}: ${mcap:,.2f} (price: ${price}, supply: {supply:,.0f})")
+                                            return mcap
+                                    
+                                    error_msg = f"❌ Could not fetch token supply for {address}"
+                                    logging.error(error_msg)
+                                    return None
+                            
+                        error_msg = f"❌ No price data found for token {address} in Jupiter API response"
+                        logging.error(error_msg)
+                        return None
                     else:
-                        error_msg = f"❌ API Error ({response.status}): Could not fetch market cap for {address}"
+                        error_msg = f"❌ Jupiter API Error ({response.status}): Could not fetch price for {address}"
                         logging.error(error_msg)
                         return None
             except Exception as e:
-                error_msg = f"❌ Network Error: Could not fetch market cap for {address}\nError: {str(e)}"
+                error_msg = f"❌ Network Error: Could not fetch price/mcap for {address}\nError: {str(e)}"
                 logging.error(error_msg)
                 return None
 
@@ -138,11 +166,18 @@ class TokenTracker:
         if current_time - info.get('last_check', 0) < self.MIN_CHECK_INTERVAL:
             return
             
+        # Get current market cap from Jupiter API
         current_mcap = await self.get_current_mcap(address)
         if current_mcap is not None:
             info['last_check'] = current_time
             multiple = current_mcap / info['initial_mcap']
             last_notified = info['last_notified_multiple']
+            
+            # Log the check for debugging
+            logging.info(f"Token: {info['name']} ({address})")
+            logging.info(f"Initial MCap: ${info['initial_mcap']:,.2f}")
+            logging.info(f"Current MCap: ${current_mcap:,.2f}")
+            logging.info(f"Multiple: {multiple:.2f}x")
             
             # Get the current whole number multiple
             current_whole_multiple = int(multiple)
@@ -179,6 +214,7 @@ class TokenTracker:
             # Only notify after 5 consecutive failures
             if info['failed_checks'] >= 5:
                 info['failed_checks'] = 0  # Reset counter
+                logging.error(f"❌ Failed to get market cap for {info['name']} ({address}) after 5 attempts")
             
             self.save_tracked_tokens()
 

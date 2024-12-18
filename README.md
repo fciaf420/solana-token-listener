@@ -14,7 +14,8 @@ A Telegram bot that monitors channels for Solana token contract addresses, forwa
 ### Token Market Cap Tracking
 - Automatically tracks market cap for tokens you buy
 - Notifies you in Saved Messages when tokens hit new multipliers (1x, 2x, 3x, etc.)
-- Real-time monitoring with rate limit handling (30 calls/minute)
+- Uses message data for initial market cap
+- Uses Jupiter API for real-time market cap updates (600 calls/minute)
 - Batch processing for efficient tracking of multiple tokens
 - Tracks any whole number multiple (1x, 2x, 3x, ..., 15x, 22x, etc.)
 
@@ -87,11 +88,11 @@ python main.py
 ### How It Works
 1. When you buy a token (message starting with "Buy $"), the bot:
    - Extracts the contract address
-   - Records initial market cap
+   - Records initial market cap from the message
    - Starts tracking the token
 
 2. The tracker:
-   - Checks market cap every minute (respecting API cache)
+   - Uses Jupiter API to check market cap every minute
    - Calculates current multiple from initial market cap
    - Sends notification when new whole number multiples are hit
 
@@ -121,13 +122,13 @@ You'll receive notifications in your Telegram Saved Messages when tokens hit new
 ```
 
 ### Rate Limiting
-- Respects GeckoTerminal API rate limit (30 calls/minute)
+- Uses Jupiter API rate limit (600 calls/minute)
 - Automatically batches requests for multiple tokens
 - Adapts check frequency based on number of tracked tokens
 
 ## Files
 - `main.py`: Main bot logic and Telegram interface
-- `token_tracker.py`: Token market cap tracking system
+- `token_tracker.py`: Token market cap tracking system using Jupiter API
 - `tracked_tokens.json`: Persistent storage of tracked tokens
 - `.env`: Configuration and API credentials
 - `requirements.txt`: Python dependencies
@@ -140,8 +141,9 @@ You'll receive notifications in your Telegram Saved Messages when tokens hit new
 - logging
 
 ## Notes
-- The bot uses GeckoTerminal's API which updates every 10-20 seconds
-- Market cap data is cached for 1 minute
+- Initial market cap is taken from the buy message
+- Ongoing market cap updates use Jupiter's Price API V2
+- Market cap updates are calculated using Jupiter price and on-chain supply data
 - Token tracking data is saved between bot restarts
 - Notifications are sent to your Telegram Saved Messages by default
   

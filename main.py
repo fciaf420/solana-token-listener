@@ -566,7 +566,7 @@ class SimpleSolListener:
                     print("\n📊 Monitoring Statistics:")
                     print("=" * 50)
                     print(f"✓ Messages Processed: {self.processed_count}")
-                    print(f"�� Tokens Found: {self.forwarded_count}")
+                    print(f"✓ Tokens Found: {self.forwarded_count}")
                     print(f"✓ Tracked Tokens: {len(self.token_tracker.tracked_tokens)}")
                     print(f"✓ Uptime: {hours}h {minutes}m")
                     print(f"✓ Active Channels: {len(self.source_chats)}")
@@ -758,14 +758,15 @@ class SimpleSolListener:
             # Check for buy/sell messages and handle token tracking
             if "Buy $" in message.message:
                 ca = await self.extract_ca_from_text(message.message)
-                mcap = await self.extract_mcap_from_message(message.message)
-                if ca and mcap:
+                initial_mcap = await self.extract_mcap_from_message(message.message)
+                if ca and initial_mcap:
                     # Extract token name
                     name_match = re.search(r'Buy \$([^\s—]+)', message.message)
                     if name_match:
                         token_name = name_match.group(1)
-                        await self.token_tracker.add_token(ca, token_name, mcap)
+                        await self.token_tracker.add_token(ca, token_name, initial_mcap)
                         print(f"✅ Started tracking token: {token_name} ({ca})")
+                        print(f"📊 Initial Market Cap: ${initial_mcap:,.2f}")
             
             # Check if it's a sell message
             elif "Sell $" in message.message:
