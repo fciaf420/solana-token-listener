@@ -1300,28 +1300,36 @@ async def main():
     """Main entry point"""
     print("👋 Welcome to Simple Solana Listener!")
     print("\n📁 Initializing Solana CA Listener...")
-    print("=" * 50)
+    print("==================================================")
+    
+    print("\n🔄 Running startup checks...")
+    print("==================================================")
+    
+    print("\n🤖 Solana Token Listener v1.0.0")
     
     try:
-        print("\n🔄 Running startup checks...")
-        print("=" * 50)
+        # Initialize the bot
         bot = SimpleSolListener()
         
-        print("\n📊 Startup Summary")
-        print("=" * 50)
-        print("✓ Environment variables loaded")
-        print("✓ Configuration files initialized")
-        print("✓ Directories created")
-        print("✓ Session loaded")
-        print(f" Monitoring {len(bot.source_chats)} chats")
-        print(f"✓ Target chat: {TARGET_CHAT}")
-        print("=" * 50)
+        # Ensure we're connected before proceeding
+        if not bot.client.is_connected():
+            await bot.client.connect()
+            print("\n✓ Connected to Telegram")
         
+        # Initialize token tracker
+        await bot.token_tracker.initialize()
+        
+        # Now run the bot
         await bot.run()
+        
     except KeyboardInterrupt:
         print("\n👋 Bot stopped by user")
     except Exception as e:
         print(f"\n❌ Error: {str(e)}")
+    finally:
+        if hasattr(bot, 'client') and bot.client.is_connected():
+            await bot.client.disconnect()
+            print("\n✓ Disconnected from Telegram")
 
 if __name__ == "__main__":
     asyncio.run(main()) 
