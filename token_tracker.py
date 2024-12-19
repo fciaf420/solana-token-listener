@@ -58,10 +58,12 @@ class TokenTracker:
         ]
         
         self.sell_indicators = [
-            "sell $", "sell success",  # Exact matches from target chat
-            "🟢 sell success",         # With emoji
-            "price impact:",           # Part of sell process
+            "🟢 sell success",         # Main sell indicator from target chat
+            "sell $",                  # Start of sell message
             "⇄",                       # Swap indicator
+            "price impact:",           # Part of sell process
+            "fetched quote (raydiumamm)",  # Quote indicator
+            "balance:",                # Balance check
             "view on solscan"          # Transaction confirmation
         ]
 
@@ -324,10 +326,10 @@ class TokenTracker:
                     f"🎯 Multiple: {current_whole_multiple}x\n\n"
                     f"📊 Market Cap:\n"
                     f"  • Initial: ${info['initial_mcap']:,.2f}\n"
-                    f"  • Current: ${current_mcap:,.2f}\n"
+                    f"   Current: ${current_mcap:,.2f}\n"
                     f"  • Change: +${current_mcap - info['initial_mcap']:,.2f}\n\n"
                     f"⏱ Time since entry: {int(hours)}h {int((hours % 1) * 60)}m\n\n"
-                    f"🔗 Quick Links:\n"
+                    f"Quick Links:\n"
                     f"• Birdeye: https://birdeye.so/token/{address}\n"
                     f"• DexScreener: https://dexscreener.com/solana/{address}\n"
                     f"• Solscan: https://solscan.io/token/{address}"
@@ -433,10 +435,12 @@ class TokenTracker:
         try:
             initial_token_count = len(self.tracked_tokens)
             
-            # Run extended cleanup check
+            # Run extended cleanup check with logging
+            logging.warning(f"Starting initial cleanup check with {initial_token_count} tokens...")
             await self.cleanup_check(initial_run=True)
             after_cleanup_count = len(self.tracked_tokens)
             removed_count = initial_token_count - after_cleanup_count
+            logging.warning(f"Initial cleanup removed {removed_count} tokens, {after_cleanup_count} remaining.")
             
             # Run extended catchup check
             await self.catchup_check(initial_run=True)
@@ -464,36 +468,127 @@ class TokenTracker:
     async def cleanup_check(self, initial_run: bool = False):
         """Check target chat history for sell messages to cleanup tracked tokens"""
         try:
+            if not self.target_chat:
+                logging.error("❌ No target chat configured for cleanup check")
+                return
+                
             current_tracked = set(self.tracked_tokens.keys())
             if not current_tracked:
                 return
                 
             cleanup_count = 0
             messages_checked = 0
-            message_limit = 300 if initial_run else 100
+            message_limit = 1000 if initial_run else 100  # Increased limit for initial run
             
-            async for message in self.client.iter_messages(self.target_chat, limit=message_limit):
-                messages_checked += 1
+            logging.warning(f"🔍 Starting cleanup check in {self.target_chat} for {len(current_tracked)} tokens...")
+            
+            # Get messages in chronological order
+            messages = []
+            async for message in self.client.iter_messages(self.target_chat, limit=message_limit, reverse=True):
+                messages.append(message)
+            
+            # Process messages chronologically
+            for message in messages:
                 if not message or not message.message:
                     continue
                 
                 text = message.message.lower()
                 ca = await self.extract_ca_from_message(message.message)
                 if ca and ca in current_tracked:
-                    # Check for sell indicators
-                    if any(indicator in text for indicator in self.sell_indicators):
-                        self.remove_token(ca)
-                        cleanup_count += 1
-                        current_tracked.remove(ca)
-                        
-                        if not current_tracked:  # If no more tokens to check
+                    # Check for sell indicators with more detailed logging
+                    for indicator in self.sell_indicators:
+                        if indicator.lower() in text:
+                            logging.warning(f"Found sell indicator '{indicator}' for {ca} in message: {text[:100]}...")
+                            self.remove_token(ca)
+                            cleanup_count += 1
+                            current_tracked.remove(ca)
                             break
+                    
+                    if not current_tracked:  # If no more tokens to check
+                        break
             
             if cleanup_count > 0:
-                logging.info(f"Cleanup check completed. Removed {cleanup_count} tokens.")
+                logging.warning(f"🧹 Cleanup check completed. Removed {cleanup_count} tokens.")
+            else:
+                logging.warning(f"🔍 Cleanup check completed. No tokens removed after checking {len(messages)} messages.")
             
         except Exception as e:
             logging.error(f"Error during cleanup check: {str(e)}")
+
+    async def catchup_check(self, initial_run: bool = False):
+        """Scan recent messages for any buy/sell signals we might have missed"""
+        try:
+            if not self.target_chat:
+                logging.error("❌ No target chat configured for catchup check")
+                return
+                
+            tokens_added = 0
+            tokens_removed = 0
+            
+            temp_tracked = {}  # Tokens bought but not yet sold
+            temp_sold = set()  # Tokens that were sold
+            
+            message_limit = 300 if initial_run else 200
+            
+            logging.warning(f"🔍 Starting catchup check in {self.target_chat}...")
+            
+            # Get messages in chronological order
+            messages = []
+            async for message in self.client.iter_messages(self.target_chat, limit=message_limit, reverse=True):
+                messages.append(message)
+            
+            # Process messages chronologically
+            for message in messages:
+                if not message or not message.message:
+                    continue
+                
+                text = message.message.lower()
+                ca = await self.extract_ca_from_message(message.message)
+                if not ca:
+                    continue
+                
+                # Check for sell signals first
+                if any(indicator.lower() in text for indicator in self.sell_indicators):
+                    if ca in temp_tracked:
+                        del temp_tracked[ca]
+                        temp_sold.add(ca)
+                        tokens_removed += 1
+                        logging.warning(f"Found sell signal for {ca} in catchup check")
+                    if ca in self.tracked_tokens:
+                        self.remove_token(ca)
+                        tokens_removed += 1
+                        logging.warning(f"Removed tracked token {ca} due to sell signal")
+                
+                # Then check for buy signals
+                elif any(indicator.lower() in text for indicator in self.buy_indicators):
+                    # Only process if not sold and not already tracked
+                    if ca not in temp_sold and ca not in self.sold_tokens and ca not in temp_tracked and ca not in self.tracked_tokens:
+                        # Get initial market cap
+                        initial_mcap = await self.get_current_mcap(ca)
+                        if initial_mcap:
+                            # Try to extract name from message
+                            name_match = re.search(r'(?i)(?:' + '|'.join(self.buy_indicators) + r')\s+(?:into\s+)?(\w+)', text)
+                            name = name_match.group(1).upper() if name_match else ca[:6]
+                            
+                            temp_tracked[ca] = {
+                                'name': name,
+                                'initial_mcap': initial_mcap,
+                                'message': message.message
+                            }
+                            tokens_added += 1
+                            logging.warning(f"Found new token {name} ({ca}) in catchup check")
+            
+            # Add remaining temp tracked tokens to actual tracking
+            for ca, info in temp_tracked.items():
+                await self.add_token(ca, info['name'], info['initial_mcap'])
+            
+            if tokens_added > 0 or tokens_removed > 0:
+                logging.warning(f"Catchup check completed. Added {tokens_added} tokens, Removed {tokens_removed} tokens.")
+            else:
+                logging.warning(f"Catchup check completed. No changes after checking {len(messages)} messages.")
+            
+        except Exception as e:
+            logging.error(f"Error during catchup check: {str(e)}")
 
     async def extract_ca_from_message(self, text: str) -> Optional[str]:
         """Extract contract address from message text"""
@@ -519,7 +614,8 @@ class TokenTracker:
             r'buy\s+\$\w+\s*[-—]\s*\([^)]+\)\s*[📈•🫧]*\s*([1-9A-HJ-NP-Za-km-z]{32,44})',  # Buy message format
             r'sell\s+\$\w+\s*[-—]\s*\([^)]+\)\s*[📈•🫧]*\s*([1-9A-HJ-NP-Za-km-z]{32,44})',  # Sell message format
             r'balance:\s*[\d.]+ \w+\s*[-—]\s*w\d+.*\nprice:\s*\$[\d.]+\s*[-—]\s*liq:\s*\$[\d.k]+\s*[-—]\s*mc:\s*\$[\d.k]+.*\n.*([1-9A-HJ-NP-Za-km-z]{32,44})',  # Price/MC format
-            r'fetched quote.*\n.*⇄.*\n.*\n.*([1-9A-HJ-NP-Za-km-z]{32,44})'  # Quote format
+            r'fetched quote.*\n.*⇄.*\n.*\n.*([1-9A-HJ-NP-Za-km-z]{32,44})',  # Quote format
+            r'🟢\s*sell\s*success.*view\s*on\s*solscan.*tx/[^)]+\).*([1-9A-HJ-NP-Za-km-z]{32,44})'  # Sell success format
         ]
         
         for pattern in buy_sell_patterns:
@@ -560,67 +656,3 @@ class TokenTracker:
                     )
         except Exception as e:
             logging.error(f"Error handling sell message: {str(e)}")
-
-    async def catchup_check(self, initial_run: bool = False):
-        """Scan recent messages for any buy/sell signals we might have missed"""
-        try:
-            tokens_added = 0
-            tokens_removed = 0
-            
-            temp_tracked = {}  # Tokens bought but not yet sold
-            temp_sold = set()  # Tokens that were sold
-            
-            message_limit = 300 if initial_run else 200
-            
-            # Get messages in chronological order
-            messages = []
-            async for message in self.client.iter_messages(self.target_chat, limit=message_limit, reverse=True):
-                messages.append(message)
-            
-            # Process messages chronologically
-            for message in messages:
-                if not message or not message.message:
-                    continue
-                
-                text = message.message.lower()
-                ca = await self.extract_ca_from_message(message.message)
-                if not ca:
-                    continue
-                
-                # Check for sell signals first
-                if any(indicator in text for indicator in self.sell_indicators):
-                    if ca in temp_tracked:
-                        del temp_tracked[ca]
-                        temp_sold.add(ca)
-                        tokens_removed += 1
-                    if ca in self.tracked_tokens:
-                        self.remove_token(ca)
-                        tokens_removed += 1
-                
-                # Then check for buy signals
-                elif any(indicator in text for indicator in self.buy_indicators):
-                    # Only process if not sold and not already tracked
-                    if ca not in temp_sold and ca not in self.sold_tokens and ca not in temp_tracked and ca not in self.tracked_tokens:
-                        # Get initial market cap
-                        initial_mcap = await self.get_current_mcap(ca)
-                        if initial_mcap:
-                            # Try to extract name from message
-                            name_match = re.search(r'(?i)(?:' + '|'.join(self.buy_indicators) + r')\s+(?:into\s+)?(\w+)', text)
-                            name = name_match.group(1).upper() if name_match else ca[:6]
-                            
-                            temp_tracked[ca] = {
-                                'name': name,
-                                'initial_mcap': initial_mcap,
-                                'message': message.message
-                            }
-                            tokens_added += 1
-            
-            # Add remaining temp tracked tokens to actual tracking
-            for ca, info in temp_tracked.items():
-                await self.add_token(ca, info['name'], info['initial_mcap'])
-            
-            if tokens_added > 0 or tokens_removed > 0:
-                logging.info(f"Catchup check completed. Added {tokens_added} tokens, Removed {tokens_removed} tokens.")
-            
-        except Exception as e:
-            logging.error(f"Error during catchup check: {str(e)}")

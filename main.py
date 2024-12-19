@@ -82,6 +82,10 @@ try:
         raise ValueError("TARGET_CHAT environment variable is not set in .env file")
     # Clean up target chat value
     TARGET_CHAT = TARGET_CHAT.lstrip('@').strip()  # Remove @ prefix and whitespace
+    
+    # Get tracking chat for notifications
+    TRACKING_CHAT = os.getenv('TRACKING_CHAT', 'me')  # Default to 'me' if not set
+    TRACKING_CHAT = TRACKING_CHAT.lstrip('@').strip()  # Clean up tracking chat value
 except (ValueError, TypeError) as e:
     print("\n❌ Error with environment variables:")
     print(f"1. Make sure you have a .env file in: {ENV_FILE}")
@@ -89,6 +93,7 @@ except (ValueError, TypeError) as e:
     print("   API_ID=your_api_id_here")
     print("   API_HASH=your_api_hash_here")
     print("   TARGET_CHAT=target_chat_here")
+    print("   TRACKING_CHAT=tracking_chat_here (optional, defaults to 'me')")
     print("\n3. API_ID should be a number")
     print("4. Get API_ID and API_HASH from https://my.telegram.org")
     print(f"\nSpecific error: {str(e)}")
@@ -100,7 +105,6 @@ class SimpleSolListener:
     def __init__(self):
         """Initialize the bot with environment and file structure checks"""
         self.version = __version__
-        print(f"\n🤖 Solana Token Listener v{self.version}")
         
         print("\n🔍 Checking environment setup...")
         if not self._check_environment():
@@ -186,7 +190,12 @@ class SimpleSolListener:
             print("❌ No .env file found!")
             print("Creating template .env file...")
             with open(ENV_FILE, 'w') as f:
-                f.write("API_ID=\nAPI_HASH=\nTARGET_CHAT=\nDEBUG=false\n")
+                f.write("""API_ID=
+API_HASH=
+TARGET_CHAT=
+TRACKING_CHAT=me
+DEBUG=false
+""")
             print("⚠️ Please fill in your credentials in the .env file")
             return False
         else:
@@ -422,9 +431,10 @@ class SimpleSolListener:
             print("2. Configure Channels")
             print("3. View Current Settings")
             print("4. Manage Keyword Filters")
-            print("5. View Tracked Tokens")  # New option
-            print("6. Exit\n")
-            choice = input("Enter your choice (0-6): ").strip()
+            print("5. View Tracked Tokens")
+            print("6. Manage Tracked Tokens")  # New option
+            print("7. Exit\n")
+            choice = input("Enter your choice (0-7): ").strip()
             
             try:
                 if choice == "0":
@@ -460,8 +470,10 @@ class SimpleSolListener:
                 elif choice == "4":
                     await self.manage_keyword_filters()
                 elif choice == "5":
-                    await self.view_tracked_tokens()  # New method
+                    await self.view_tracked_tokens()
                 elif choice == "6":
+                    await self.manage_tracked_tokens()
+                elif choice == "7":
                     print("\n👋 Goodbye!")
                     await self.client.disconnect()
                     return False
@@ -876,7 +888,7 @@ class SimpleSolListener:
     async def manage_keyword_filters(self):
         """Manage keyword filters"""
         while True:
-            print("\n🔍 Keyword Filter Management")
+            print("\n Keyword Filter Management")
             print("=" * 50)
             
             current_blacklist = self.config.get('blacklisted_keywords', [])
@@ -1295,6 +1307,68 @@ class SimpleSolListener:
                     print(f"✓ {chat_name}: Monitoring all users")
             except:
                 print(f"✓ Chat {chat_id}: Configuration saved")
+
+    async def manage_tracked_tokens(self):
+        """Manage currently tracked tokens"""
+        print("\n🔧 Token Management")
+        print("=" * 50)
+        
+        if not self.token_tracker.tracked_tokens:
+            print("No tokens currently being tracked.")
+            input("\nPress Enter to continue...")
+            return
+        
+        # Display all tracked tokens with indices
+        tokens = list(self.token_tracker.tracked_tokens.items())
+        for i, (address, info) in enumerate(tokens):
+            multiple = info['last_check']['multiple']
+            print(f"\n{i}. {info['name']}")
+            print(f"   • Multiple: {multiple:.2f}x")
+            print(f"   • MCap: ${info['last_check']['mcap']:,.2f}")
+            print(f"   • Address: {address}")
+        
+        print("\nOptions:")
+        print("1. Remove specific tokens")
+        print("2. Remove all tokens")
+        print("3. Back to main menu")
+        
+        choice = input("\nEnter your choice (1-3): ").strip()
+        
+        if choice == "1":
+            while True:
+                indices = input("\nEnter token numbers to remove (comma-separated) or 'q' to cancel: ").strip()
+                if indices.lower() == 'q':
+                    break
+                
+                try:
+                    selected = [int(x.strip()) for x in indices.split(',')]
+                    removed = []
+                    
+                    for idx in selected:
+                        if 0 <= idx < len(tokens):
+                            address, info = tokens[idx]
+                            self.token_tracker.remove_token(address)
+                            removed.append(info['name'])
+                    
+                    if removed:
+                        print(f"\n✅ Removed tokens: {', '.join(removed)}")
+                        print(f"📊 Now tracking {len(self.token_tracker.tracked_tokens)} tokens")
+                        break
+                    else:
+                        print("❌ No valid tokens selected")
+                except ValueError:
+                    print("❌ Please enter valid numbers separated by commas")
+        
+        elif choice == "2":
+            confirm = input("\n⚠️ Are you sure you want to remove ALL tracked tokens? (y/n): ").lower()
+            if confirm == 'y':
+                for address in list(self.token_tracker.tracked_tokens.keys()):
+                    self.token_tracker.remove_token(address)
+                print("\n✅ All tokens removed")
+            else:
+                print("\n❌ Operation cancelled")
+        
+        input("\nPress Enter to continue...")
 
 async def main():
     """Main entry point"""
