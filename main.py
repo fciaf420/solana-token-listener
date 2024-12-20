@@ -652,15 +652,15 @@ DEBUG=false
             pass
 
     async def handle_source_message(self, event):
-        """Process new messages from source chats for token forwarding"""
+        """Handle messages from source chats"""
         try:
             # Get the message
             message = event.message
             
             # Skip if message is None
-            if not message:
+            if not message or not message.message:
                 return
-                
+            
             # Get chat and sender info
             try:
                 chat = await self.client.get_entity(message.chat_id)
@@ -677,84 +677,35 @@ DEBUG=false
                     else:
                         sender_name = f"ID: {message.sender_id}"
                 
-                # Show detailed feed if enabled
-                if hasattr(self, 'show_detailed_feed') and self.show_detailed_feed:
-                    print(f"\n📨 New Message from {chat.title}")
-                    print(f"👤 From: {sender_name or 'Unknown'}")
-                    print(f"💬 Message: {message.message[:100]}..." if len(message.message) > 100 else message.message)
-                    
+                logging.info(f"Source message from {chat.title} by {sender_name}")
+                
             except Exception as e:
                 logging.error(f"Error getting message details: {e}")
                 
-            # Check user filters
-            chat_id = str(message.chat_id)
-            if chat_id in self.filtered_users and message.sender_id not in self.filtered_users[chat_id]:
-                if hasattr(self, 'show_detailed_feed') and self.show_detailed_feed:
-                    print("⏩ Skipped: User not in monitored list")
-                return
-                
-            # Check for blacklisted keywords
-            if not await self.check_message_content(message):
-                if hasattr(self, 'show_detailed_feed') and self.show_detailed_feed:
-                    print("⏩ Skipped: Contains blacklisted keyword")
-                return
-                
-            # Process message content
-            content_type, ca = await self.process_message_content(message)
-            if not ca:
-                if hasattr(self, 'show_detailed_feed') and self.show_detailed_feed:
-                    print("⏩ No CA found in message")
-                return
-                
-            # Skip if already processed
-            if ca in self.processed_tokens:
-                if hasattr(self, 'show_detailed_feed') and self.show_detailed_feed:
-                    print(f"⏩ Skipping duplicate token: {ca}")
-                return
-                
-            self.processed_tokens.append(ca)
-            self.save_processed_tokens()
-            
-            # Try to forward the message
-            try:
-                await message.forward_to(TARGET_CHAT)
-                print(f"✅ Forwarded new token: {ca}")
-                logging.info(f"Successfully forwarded CA: {ca}")
-                self.forwarded_count += 1
-            except Exception as forward_error:
-                # If forwarding fails due to protection, send as new message
-                if "protected chat" in str(forward_error):
-                    try:
-                        # Create a formatted message with source info
-                        source_info = f"Source: {chat.title}"
-                        if sender_name:
-                            source_info += f" | From: {sender_name}"
-                            
-                        formatted_message = (
-                            f"🔔 New Token Detected\n\n"
-                            f"💎 CA: `{ca}`\n\n"
-                            f"🔍 {source_info}\n\n"
-                            f"Quick Links:\n"
-                            f"• Birdeye: https://birdeye.so/token/{ca}\n"
-                            f"• Solscan: https://solscan.io/token/{ca}\n"
-                            f"• Jupiter: https://jup.ag/swap/SOL-{ca}"
-                        )
-                        
-                        await self.client.send_message(TARGET_CHAT, formatted_message, parse_mode='markdown')
-                        print(f"✅ Sent new token message: {ca}")
-                        logging.info(f"Successfully sent CA as new message: {ca}")
-                        self.forwarded_count += 1
-                    except Exception as send_error:
-                        print(f"❌ Error sending message: {str(send_error)}")
-                        logging.error(f"Error sending message: {str(send_error)}")
-                else:
-                    print(f"❌ Error forwarding message: {str(forward_error)}")
-                    logging.error(f"Error forwarding message: {str(forward_error)}")
-            
-            self.processed_count += 1
+            # Extract contract address if present
+            ca = await self.extract_ca_from_text(message.message)
+            if ca:
+                logging.info(f"Found contract address: {ca}")
+                # Forward to target chat
+                try:
+                    await self.client.send_message(
+                        TARGET_CHAT,
+                        f"🔔 New Token Detected\n\n"
+                        f"💎 CA: `{ca}`\n\n"
+                        f"���� Source: {chat.title}\n"
+                        f"👤 From: {sender_name}\n\n"
+                        f"Quick Links:\n"
+                        f"• Birdeye: https://birdeye.so/token/{ca}\n"
+                        f"• Solscan: https://solscan.io/token/{ca}\n"
+                        f"• Jupiter: https://jup.ag/swap/SOL-{ca}",
+                        parse_mode='markdown'
+                    )
+                    logging.info(f"Successfully forwarded CA: {ca}")
+                except Exception as e:
+                    logging.error(f"Error forwarding message: {e}")
             
         except Exception as e:
-            logging.error(f"Error handling message: {str(e)}")
+            logging.error(f"Error handling source message: {str(e)}")
             logging.exception("Full traceback:")
 
     async def handle_target_message(self, event):
@@ -1254,7 +1205,7 @@ DEBUG=false
             
         except Exception as e:
             if "BOT_ALREADY_STARTED" in str(e):
-                print(f"✅ Already started @{bot_username}!")
+                print(f"Already started @{bot_username}!")
                 self.config['verified'] = True
                 self.save_config()
                 return True
@@ -1377,7 +1328,7 @@ async def main():
         print("==================================================")
         
         # Initialize the client
-        client = TelegramClient('anon', api_id, api_hash)
+        client = TelegramClient('anon', API_ID, API_HASH)
         await client.start()
         
         print("✅ Connected to Telegram")
@@ -1385,38 +1336,18 @@ async def main():
         # Initialize TokenTracker
         token_tracker = None
         if TRACKING_CHAT:
-            token_tracker = TokenTracker(client, TARGET_CHAT, TRACKING_CHAT)
+            token_tracker = TokenTracker(client, notification_target=TRACKING_CHAT)
             print("✅ Token Tracker initialized")
         
         # Run initial cleanup and catchup
         if token_tracker:
             await token_tracker.initial_cleanup()
         
-        print("\n🎯 Monitoring Settings")
-        print("--------------------------------------------------")
-        print(f"Source Chat: {SOURCE_CHAT}")
-        print(f"Target Chat: {TARGET_CHAT}")
-        if TRACKING_CHAT:
-            print(f"Tracking Chat: {TRACKING_CHAT}")
-        print("==================================================\n")
+        # Create SimpleSolListener instance
+        listener = SimpleSolListener()
         
-        @client.on(events.NewMessage())
-        async def handler(event):
-            try:
-                # Handle source chat messages
-                if str(event.chat_id) == SOURCE_CHAT:
-                    await handle_source_message(event, client)
-                
-                # Handle target chat messages for token tracking
-                if token_tracker and str(event.chat_id) == TARGET_CHAT:
-                    await token_tracker.process_message(event)
-                    
-            except Exception as e:
-                logging.error(f"Error in message handler: {str(e)}")
-                logging.exception("Full traceback:")
-        
-        print("🔄 Bot is running. Press Ctrl+C to stop.")
-        await client.run_until_disconnected()
+        # Show startup menu and handle user interaction
+        await listener.start()
         
     except Exception as e:
         logging.error(f"Error in main function: {str(e)}")
