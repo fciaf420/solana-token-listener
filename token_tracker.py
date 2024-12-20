@@ -49,22 +49,23 @@ class TokenTracker:
         
         # Buy/Sell indicators
         self.buy_indicators = [
-            "buy $", "buy success",  # Exact matches from target chat
-            "🟢 buy success",        # With emoji
-            "fetched quote",         # Part of buy process
+            "Buy $", "Buy Success!",  # Main buy indicators
+            "🟢 Buy Success!",        # With emoji
+            "🟢 Fetched Quote",      # Quote indicator
             "⇄",                     # Swap indicator
-            "balance: ",             # Part of buy message
-            "price: $"               # Part of buy message
+            "Balance: ",             # Balance check
+            "Price: $",              # Price indicator
+            "Renounced ✅"           # Renounced indicator
         ]
         
         self.sell_indicators = [
-            "🟢 sell success",         # Main sell indicator from target chat
-            "sell $",                  # Start of sell message
-            "⇄",                       # Swap indicator
-            "price impact:",           # Part of sell process
-            "fetched quote (raydiumamm)",  # Quote indicator
-            "balance:",                # Balance check
-            "view on solscan"          # Transaction confirmation
+            "Sell $", "Sell Success!",  # Main sell indicators
+            "🟢 Sell Success!",         # With emoji
+            "🟢 Fetched Quote",         # Quote indicator
+            "⇄",                        # Swap indicator
+            "Balance: ",                # Balance check
+            "Price: $",                 # Price indicator
+            "Renounced ✅"              # Renounced indicator
         ]
 
     async def initialize(self):
@@ -435,85 +436,114 @@ class TokenTracker:
         try:
             initial_token_count = len(self.tracked_tokens)
             
+            print("\n🔍 Initial Token Validation")
+            print("==================================================")
+            print(f"Starting with {initial_token_count} tracked tokens...")
+            
             # Run extended cleanup check with logging
             logging.warning(f"Starting initial cleanup check with {initial_token_count} tokens...")
             await self.cleanup_check(initial_run=True)
             after_cleanup_count = len(self.tracked_tokens)
             removed_count = initial_token_count - after_cleanup_count
-            logging.warning(f"Initial cleanup removed {removed_count} tokens, {after_cleanup_count} remaining.")
             
-            # Run extended catchup check
-            await self.catchup_check(initial_run=True)
-            final_token_count = len(self.tracked_tokens)
-            added_count = final_token_count - after_cleanup_count
-            
-            print("\n📊 Initial Token Check Summary")
-            print("==================================================")
-            print(f"Initial tokens: {initial_token_count}")
-            print(f"🗑️ Removed tokens: {removed_count}")
-            print(f"✨ Added tokens: {added_count}")
-            print(f"📈 Now tracking {final_token_count} tokens")
-            
-            # Show current multiples
-            if final_token_count > 0:
-                print("\n📈 Current Token Status:")
+            # Show detailed status
+            print("\n📊 Current Holdings Status:")
+            if after_cleanup_count > 0:
                 for address, info in self.tracked_tokens.items():
                     multiple = info['last_check']['multiple']
                     print(f"• {info['name']}: {multiple:.2f}x (${info['last_check']['mcap']:,.2f})")
+                    print(f"  Added: {info['added_at']}")
+                    print(f"  Last Update: {info['last_check']['time_readable']}")
+            else:
+                print("No tokens currently being tracked")
+            
+            print("\n📈 Summary")
+            print("--------------------------------------------------")
+            print(f"Initial tokens: {initial_token_count}")
+            print(f"Removed tokens: {removed_count}")
+            print(f"Current tokens: {after_cleanup_count}")
             print("==================================================\n")
             
         except Exception as e:
             logging.error(f"Error during initial startup checks: {str(e)}")
+            logging.exception("Full traceback:")
 
     async def cleanup_check(self, initial_run: bool = False):
-        """Check target chat history for sell messages to cleanup tracked tokens"""
+        """Validate current holdings and cleanup tracked tokens"""
         try:
             if not self.target_chat:
                 logging.error("❌ No target chat configured for cleanup check")
                 return
-                
-            current_tracked = set(self.tracked_tokens.keys())
-            if not current_tracked:
-                return
-                
-            cleanup_count = 0
-            messages_checked = 0
-            message_limit = 1000 if initial_run else 100  # Increased limit for initial run
             
-            logging.warning(f"🔍 Starting cleanup check in {self.target_chat} for {len(current_tracked)} tokens...")
+            logging.warning(f"🔍 Starting cleanup check in {self.target_chat}...")
             
-            # Get messages in chronological order
+            # Track the most recent action (buy/sell) for each token
+            token_states = {}  # {address: {'action': 'buy'/'sell', 'time': timestamp}}
+            message_limit = 1000 if initial_run else 500
+            
+            # Get messages in reverse chronological order (newest first)
             messages = []
-            async for message in self.client.iter_messages(self.target_chat, limit=message_limit, reverse=True):
+            async for message in self.client.iter_messages(self.target_chat, limit=message_limit):
                 messages.append(message)
             
-            # Process messages chronologically
+            # Process messages to determine current holdings
             for message in messages:
                 if not message or not message.message:
                     continue
                 
                 text = message.message.lower()
                 ca = await self.extract_ca_from_message(message.message)
-                if ca and ca in current_tracked:
-                    # Check for sell indicators with more detailed logging
-                    for indicator in self.sell_indicators:
-                        if indicator.lower() in text:
-                            logging.warning(f"Found sell indicator '{indicator}' for {ca} in message: {text[:100]}...")
-                            self.remove_token(ca)
-                            cleanup_count += 1
-                            current_tracked.remove(ca)
-                            break
-                    
-                    if not current_tracked:  # If no more tokens to check
-                        break
+                if not ca:
+                    continue
+                
+                # Only process if we haven't seen this token yet or if this message is newer
+                current_state = token_states.get(ca)
+                if current_state is None or message.date.timestamp() > current_state['time']:
+                    # Check for sell messages first (they take precedence)
+                    if any(indicator.lower() in text for indicator in self.sell_indicators):
+                        token_states[ca] = {'action': 'sell', 'time': message.date.timestamp()}
+                        logging.info(f"Found sell for {ca}")
+                    # Then check for buy messages
+                    elif any(indicator.lower() in text for indicator in self.buy_indicators):
+                        token_states[ca] = {'action': 'buy', 'time': message.date.timestamp()}
+                        logging.info(f"Found buy for {ca}")
             
-            if cleanup_count > 0:
-                logging.warning(f"🧹 Cleanup check completed. Removed {cleanup_count} tokens.")
-            else:
-                logging.warning(f"🔍 Cleanup check completed. No tokens removed after checking {len(messages)} messages.")
+            # Remove tokens we're not holding
+            cleanup_count = 0
+            for address in list(self.tracked_tokens.keys()):
+                state = token_states.get(address)
+                if state is None or state['action'] == 'sell':
+                    token_info = self.tracked_tokens[address]
+                    reason = "not found in recent history" if state is None else "token was sold"
+                    logging.warning(f"Removing {token_info['name']} ({address}) - {reason}")
+                    self.remove_token(address)
+                    cleanup_count += 1
+            
+            # Add any missing tokens we are holding
+            added_count = 0
+            for address, state in token_states.items():
+                if state['action'] == 'buy' and address not in self.tracked_tokens and address not in self.sold_tokens:
+                    # Find the buy message to get initial mcap
+                    for message in messages:
+                        if not message.message:
+                            continue
+                        msg_ca = await self.extract_ca_from_message(message.message)
+                        if msg_ca == address and any(indicator.lower() in message.message.lower() for indicator in self.buy_indicators):
+                            initial_mcap = await self.extract_mcap_from_message(message.message)
+                            if initial_mcap:
+                                # Extract name from message
+                                name_match = re.search(r'Buy \$([^\s—]+)', message.message)
+                                name = name_match.group(1) if name_match else address[:6]
+                                await self.add_token(address, name, initial_mcap)
+                                added_count += 1
+                                logging.warning(f"Added missing held token: {name} ({address})")
+                            break
+            
+            logging.warning(f"Cleanup check completed: Removed {cleanup_count} tokens, Added {added_count} tokens")
             
         except Exception as e:
             logging.error(f"Error during cleanup check: {str(e)}")
+            logging.exception("Full traceback:")
 
     async def catchup_check(self, initial_run: bool = False):
         """Scan recent messages for any buy/sell signals we might have missed"""
@@ -590,48 +620,45 @@ class TokenTracker:
         except Exception as e:
             logging.error(f"Error during catchup check: {str(e)}")
 
+    async def extract_mcap_from_message(self, text: str) -> Optional[float]:
+        """Extract market cap from message text"""
+        try:
+            # Look for MC: $XXK pattern
+            mc_match = re.search(r'MC:\s*\$([0-9,.]+)([KMB])?', text)
+            if mc_match:
+                value = float(mc_match.group(1).replace(',', ''))
+                multiplier = {
+                    'K': 1_000,
+                    'M': 1_000_000,
+                    'B': 1_000_000_000
+                }.get(mc_match.group(2), 1)
+                return value * multiplier
+            return None
+        except Exception as e:
+            logging.error(f"Error extracting market cap: {str(e)}")
+            return None
+
     async def extract_ca_from_message(self, text: str) -> Optional[str]:
         """Extract contract address from message text"""
         if not text:
             return None
-            
-        # Common Solana link patterns - prioritize tokens in links
-        link_patterns = [
+        
+        # Common patterns in your messages
+        patterns = [
+            # Buy/Sell message format
+            r'(?:Buy|Sell)\s+\$[^\n]+\n([1-9A-HJ-NP-Za-km-z]{32,44})',
+            # Share token format
+            r'Share token with your Reflink\s*\n([1-9A-HJ-NP-Za-km-z]{32,44})',
+            # Direct contract address
+            r'^([1-9A-HJ-NP-Za-km-z]{32,44})$',
+            # Dexscreener link
             r'dexscreener\.com/solana/([1-9A-HJ-NP-Za-km-z]{32,44})',
-            r'birdeye\.so/token/([1-9A-HJ-NP-Za-km-z]{32,44})',
-            r'solscan\.io/token/([1-9A-HJ-NP-Za-km-z]{32,44})',
-            r'jup\.ag/swap/[^-]+-([1-9A-HJ-NP-Za-km-z]{32,44})'
+            # Other common links
+            r'(?:birdeye\.so/token|solscan\.io/token|jup\.ag/swap/[^-]+-)([1-9A-HJ-NP-Za-km-z]{32,44})'
         ]
         
-        # First try to find token in links
-        for pattern in link_patterns:
-            match = re.search(pattern, text)
-            if match:
-                return match.group(1)
-        
-        # Look for token addresses in buy/sell messages
-        buy_sell_patterns = [
-            r'buy\s+\$\w+\s*[-—]\s*\([^)]+\)\s*[📈•🫧]*\s*([1-9A-HJ-NP-Za-km-z]{32,44})',  # Buy message format
-            r'sell\s+\$\w+\s*[-—]\s*\([^)]+\)\s*[📈•🫧]*\s*([1-9A-HJ-NP-Za-km-z]{32,44})',  # Sell message format
-            r'balance:\s*[\d.]+ \w+\s*[-—]\s*w\d+.*\nprice:\s*\$[\d.]+\s*[-—]\s*liq:\s*\$[\d.k]+\s*[-—]\s*mc:\s*\$[\d.k]+.*\n.*([1-9A-HJ-NP-Za-km-z]{32,44})',  # Price/MC format
-            r'fetched quote.*\n.*⇄.*\n.*\n.*([1-9A-HJ-NP-Za-km-z]{32,44})',  # Quote format
-            r'🟢\s*sell\s*success.*view\s*on\s*solscan.*tx/[^)]+\).*([1-9A-HJ-NP-Za-km-z]{32,44})'  # Sell success format
-        ]
-        
-        for pattern in buy_sell_patterns:
-            match = re.search(pattern, text, re.IGNORECASE | re.MULTILINE | re.DOTALL)
-            if match:
-                return match.group(1)
-        
-        # If no matches found in structured formats, look for explicitly marked tokens
-        explicit_patterns = [
-            r'token:\s*([1-9A-HJ-NP-Za-km-z]{32,44})\b',
-            r'ca:\s*([1-9A-HJ-NP-Za-km-z]{32,44})\b',
-            r'contract:\s*([1-9A-HJ-NP-Za-km-z]{32,44})\b'
-        ]
-        
-        for pattern in explicit_patterns:
-            match = re.search(pattern, text, re.IGNORECASE)
+        for pattern in patterns:
+            match = re.search(pattern, text, re.MULTILINE)
             if match:
                 return match.group(1)
         

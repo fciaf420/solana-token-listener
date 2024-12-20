@@ -1371,39 +1371,56 @@ DEBUG=false
         input("\nPress Enter to continue...")
 
 async def main():
-    """Main entry point"""
-    print("👋 Welcome to Simple Solana Listener!")
-    print("\n📁 Initializing Solana CA Listener...")
-    print("==================================================")
-    
-    print("\n🔄 Running startup checks...")
-    print("==================================================")
-    
-    print("\n🤖 Solana Token Listener v1.0.0")
-    
+    """Main function to run the Telegram bot"""
     try:
-        # Initialize the bot
-        bot = SimpleSolListener()
+        print("\n🚀 Starting Telegram Bot")
+        print("==================================================")
         
-        # Ensure we're connected before proceeding
-        if not bot.client.is_connected():
-            await bot.client.connect()
-            print("\n✓ Connected to Telegram")
+        # Initialize the client
+        client = TelegramClient('anon', api_id, api_hash)
+        await client.start()
         
-        # Initialize token tracker
-        await bot.token_tracker.initialize()
+        print("✅ Connected to Telegram")
         
-        # Now run the bot
-        await bot.run()
+        # Initialize TokenTracker
+        token_tracker = None
+        if TRACKING_CHAT:
+            token_tracker = TokenTracker(client, TARGET_CHAT, TRACKING_CHAT)
+            print("✅ Token Tracker initialized")
         
-    except KeyboardInterrupt:
-        print("\n👋 Bot stopped by user")
+        # Run initial cleanup and catchup
+        if token_tracker:
+            await token_tracker.initial_cleanup()
+        
+        print("\n🎯 Monitoring Settings")
+        print("--------------------------------------------------")
+        print(f"Source Chat: {SOURCE_CHAT}")
+        print(f"Target Chat: {TARGET_CHAT}")
+        if TRACKING_CHAT:
+            print(f"Tracking Chat: {TRACKING_CHAT}")
+        print("==================================================\n")
+        
+        @client.on(events.NewMessage())
+        async def handler(event):
+            try:
+                # Handle source chat messages
+                if str(event.chat_id) == SOURCE_CHAT:
+                    await handle_source_message(event, client)
+                
+                # Handle target chat messages for token tracking
+                if token_tracker and str(event.chat_id) == TARGET_CHAT:
+                    await token_tracker.process_message(event)
+                    
+            except Exception as e:
+                logging.error(f"Error in message handler: {str(e)}")
+                logging.exception("Full traceback:")
+        
+        print("🔄 Bot is running. Press Ctrl+C to stop.")
+        await client.run_until_disconnected()
+        
     except Exception as e:
-        print(f"\n❌ Error: {str(e)}")
-    finally:
-        if hasattr(bot, 'client') and bot.client.is_connected():
-            await bot.client.disconnect()
-            print("\n✓ Disconnected from Telegram")
+        logging.error(f"Error in main function: {str(e)}")
+        logging.exception("Full traceback:")
 
 if __name__ == "__main__":
     asyncio.run(main()) 
