@@ -195,52 +195,83 @@ class TokenTracker:
         self.api_call_times.append(current_time)
 
     async def get_current_mcap(self, address: str) -> Optional[float]:
-        await self.wait_for_rate_limit()
-        
-        async with aiohttp.ClientSession() as session:
+        """Get current market cap with retries and GeckoTerminal backup"""
+        # Try Jupiter API first (with retries)
+        for attempt in range(3):  # Try up to 3 times
             try:
-                # Get price in USDC
-                url = f"{self.JUPITER_BASE_URL}?ids={address}"
-                async with session.get(url) as response:
+                await self.wait_for_rate_limit()
+                
+                async with aiohttp.ClientSession() as session:
+                    # Get price in USDC from Jupiter
+                    url = f"{self.JUPITER_BASE_URL}?ids={address}"
+                    async with session.get(url) as response:
+                        if response.status == 200:
+                            data = await response.json()
+                            if data and isinstance(data, dict) and 'data' in data:
+                                token_data = data['data'].get(address)
+                                if token_data and 'price' in token_data:
+                                    price = float(token_data['price'])
+                                    
+                                    # Get token supply from Solana RPC
+                                    supply_url = "https://api.mainnet-beta.solana.com"
+                                    supply_payload = {
+                                        "jsonrpc": "2.0",
+                                        "id": 1,
+                                        "method": "getTokenSupply",
+                                        "params": [address]
+                                    }
+                                    async with session.post(supply_url, json=supply_payload) as supply_response:
+                                        if supply_response.status == 200:
+                                            supply_data = await supply_response.json()
+                                            if supply_data and 'result' in supply_data:
+                                                supply = float(supply_data['result']['value']['amount']) / 10 ** supply_data['result']['value']['decimals']
+                                                mcap = price * supply
+                                                logging.info(f"Got market cap from Jupiter for {address}: ${mcap:,.2f}")
+                                                return mcap
+                                        
+                                        error_msg = f"❌ Could not fetch token supply for {address}"
+                                        logging.error(error_msg)
+                
+                if attempt < 2:  # Don't sleep on last attempt
+                    await asyncio.sleep(2)  # Wait 2 seconds before retry
+                    logging.warning(f"Retrying Jupiter API for {address} (attempt {attempt + 2}/3)")
+                    
+            except Exception as e:
+                if attempt < 2:
+                    await asyncio.sleep(2)
+                    logging.warning(f"Jupiter API error for {address}, retrying... Error: {str(e)}")
+                else:
+                    logging.error(f"Jupiter API failed after 3 attempts for {address}: {str(e)}")
+        
+        # If Jupiter fails, try GeckoTerminal API as backup
+        try:
+            logging.warning(f"Trying GeckoTerminal API as backup for {address}")
+            async with aiohttp.ClientSession() as session:
+                # Get token data from GeckoTerminal
+                gecko_url = f"https://api.geckoterminal.com/api/v2/networks/solana/tokens/{address}"
+                headers = {"Accept": "application/json"}  # GeckoTerminal requires this header
+                async with session.get(gecko_url, headers=headers) as response:
                     if response.status == 200:
                         data = await response.json()
-                        if data and isinstance(data, dict) and 'data' in data:
-                            token_data = data['data'].get(address)
-                            if token_data and 'price' in token_data:
-                                price = float(token_data['price'])
-                                
-                                # Get token supply from Solana RPC
-                                supply_url = "https://api.mainnet-beta.solana.com"
-                                supply_payload = {
-                                    "jsonrpc": "2.0",
-                                    "id": 1,
-                                    "method": "getTokenSupply",
-                                    "params": [address]
-                                }
-                                async with session.post(supply_url, json=supply_payload) as supply_response:
-                                    if supply_response.status == 200:
-                                        supply_data = await supply_response.json()
-                                        if supply_data and 'result' in supply_data:
-                                            supply = float(supply_data['result']['value']['amount']) / 10 ** supply_data['result']['value']['decimals']
-                                            mcap = price * supply
-                                            logging.info(f"Got market cap for {address}: ${mcap:,.2f} (price: ${price}, supply: {supply:,.0f})")
-                                            return mcap
-                                    
-                                    error_msg = f"❌ Could not fetch token supply for {address}"
-                                    logging.error(error_msg)
-                                    return None
-                            
-                        error_msg = f"❌ No price data found for token {address} in Jupiter API response"
-                        logging.error(error_msg)
-                        return None
+                        if data and 'data' in data and 'attributes' in data['data']:
+                            attrs = data['data']['attributes']
+                            if 'fdv_usd' in attrs and attrs['fdv_usd'] is not None:
+                                mcap = float(attrs['fdv_usd'])
+                                logging.info(f"Got market cap from GeckoTerminal for {address}: ${mcap:,.2f}")
+                                return mcap
+                            elif 'market_cap_usd' in attrs and attrs['market_cap_usd'] is not None:
+                                mcap = float(attrs['market_cap_usd'])
+                                logging.info(f"Got market cap from GeckoTerminal for {address}: ${mcap:,.2f}")
+                                return mcap
                     else:
-                        error_msg = f"❌ Jupiter API Error ({response.status}): Could not fetch price for {address}"
-                        logging.error(error_msg)
-                        return None
-            except Exception as e:
-                error_msg = f"❌ Network Error: Could not fetch price/mcap for {address}\nError: {str(e)}"
-                logging.error(error_msg)
-                return None
+                        logging.error(f"❌ GeckoTerminal API Error ({response.status}): Could not fetch data for {address}")
+                        
+        except Exception as e:
+            logging.error(f"❌ GeckoTerminal API Error: Could not fetch data for {address}: {str(e)}")
+        
+        # If both APIs fail, return None
+        logging.error(f"❌ Could not get market cap for {address} from either Jupiter or GeckoTerminal")
+        return None
 
     def format_timestamp(self, timestamp: float) -> str:
         """Convert Unix timestamp to readable format"""
@@ -623,16 +654,42 @@ class TokenTracker:
     async def extract_mcap_from_message(self, text: str) -> Optional[float]:
         """Extract market cap from message text"""
         try:
-            # Look for MC: $XXK pattern
-            mc_match = re.search(r'MC:\s*\$([0-9,.]+)([KMB])?', text)
-            if mc_match:
-                value = float(mc_match.group(1).replace(',', ''))
-                multiplier = {
-                    'K': 1_000,
-                    'M': 1_000_000,
-                    'B': 1_000_000_000
-                }.get(mc_match.group(2), 1)
-                return value * multiplier
+            # Multiple patterns for market cap
+            patterns = [
+                r'MC:\s*\$([0-9,.]+)([KMB])?',  # Standard format: MC: $161.83K
+                r'Market Cap:\s*\$([0-9,.]+)([KMB])?',  # Full format: Market Cap: $161.83K
+                r'MCap:\s*\$([0-9,.]+)([KMB])?',  # Short format: MCap: $161.83K
+                r'MC\s*\$([0-9,.]+)([KMB])?',  # No colon: MC $161.83K
+                r'MC\s+([0-9,.]+)([KMB])?',  # No dollar sign: MC 161.83K
+                r'\$([0-9,.]+)([KMB])?\s+MC',  # Reversed format: $161.83K MC
+            ]
+            
+            for pattern in patterns:
+                match = re.search(pattern, text, re.IGNORECASE)
+                if match:
+                    value = float(match.group(1).replace(',', ''))
+                    multiplier = {
+                        'K': 1_000,
+                        'M': 1_000_000,
+                        'B': 1_000_000_000,
+                        'k': 1_000,
+                        'm': 1_000_000,
+                        'b': 1_000_000_000,
+                        None: 1
+                    }[match.group(2)]
+                    mcap = value * multiplier
+                    logging.info(f"Found market cap: ${mcap:,.2f}")
+                    return mcap
+            
+            # If no match found, try to get it from Jupiter API
+            if not any(pattern in text.lower() for pattern in ['mc:', 'mcap:', 'market cap']):
+                ca = await self.extract_ca_from_message(text)
+                if ca:
+                    mcap = await self.get_current_mcap(ca)
+                    if mcap:
+                        logging.info(f"Got market cap from Jupiter API: ${mcap:,.2f}")
+                        return mcap
+            
             return None
         except Exception as e:
             logging.error(f"Error extracting market cap: {str(e)}")

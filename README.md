@@ -1,6 +1,6 @@
 # Solana Token Listener Bot
 
-A Telegram bot that monitors channels for Solana token contract addresses, forwards them to a target channel, and tracks token market cap multiples using Jupiter API.
+A Telegram bot that monitors channels for Solana token contract addresses, forwards them to a target channel, and tracks token market cap multiples using Jupiter API with GeckoTerminal API as backup.
 
 ## Features
 
@@ -14,7 +14,8 @@ A Telegram bot that monitors channels for Solana token contract addresses, forwa
 ### Token Market Cap Tracking
 - Automatically tracks market cap for tokens you buy
 - Notifies you when tokens hit new multipliers (2x, 3x, etc.)
-- Uses Jupiter API for real-time market cap updates (600 calls/minute)
+- Uses Jupiter API with automatic retries (3 attempts)
+- GeckoTerminal API as backup when Jupiter fails
 - Batch processing for efficient tracking of multiple tokens
 - Tracks any whole number multiple (2x, 3x, ..., 15x, 22x, etc.)
 - Automatically removes tokens when sell messages are detected
@@ -167,6 +168,20 @@ You'll receive notifications in your Telegram Saved Messages when tokens hit new
 - Automatically batches requests for multiple tokens
 - Adapts check frequency based on number of tracked tokens
 - Minimum 60-second interval between checks per token
+- Automatic retries with 2-second delays
+- Fallback to GeckoTerminal API when Jupiter fails
+
+## Price Data Sources
+1. Primary: Jupiter API
+   - 3 retry attempts with 2-second delays
+   - Rate limited to 600 calls/minute
+   - Used for initial price checks
+
+2. Backup: GeckoTerminal API
+   - Used when Jupiter API fails
+   - Public endpoints (no API key needed)
+   - Provides both FDV and Market Cap values
+   - More resilient for some tokens
 
 ## Files
 - `main.py`: Main bot logic and Telegram interface

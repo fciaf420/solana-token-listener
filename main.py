@@ -243,12 +243,37 @@ DEBUG=false
             r'\b([1-9A-HJ-NP-Za-km-z]{32,44})\b'                       # Raw CA
         ]
         
+        found_ca = None
         for pattern in link_patterns:
             match = re.search(pattern, text)
             if match:
                 ca = match.group(1)
-                logging.info(f"Found CA: {ca}")
-                return ca
+                # Normalize the CA (remove any potential formatting)
+                normalized_ca = ca.strip().upper()
+                
+                # Log all variations found
+                if found_ca and found_ca != normalized_ca:
+                    logging.warning(f"Multiple CAs found in message: {found_ca} vs {normalized_ca}")
+                    # Use the first one found to be consistent
+                    continue
+                
+                found_ca = normalized_ca
+                logging.info(f"Found CA: {found_ca}")
+        
+        if found_ca:
+            # Check if any variation of this CA exists in processed tokens
+            normalized_processed = [token.strip().upper() for token in self.processed_tokens]
+            if found_ca in normalized_processed:
+                logging.info(f"⏩ Skipping duplicate token (normalized): {found_ca}")
+                return None
+            
+            # If it's truly new, add the normalized version
+            if found_ca not in self.processed_tokens:
+                self.processed_tokens.append(found_ca)
+                self.save_processed_tokens()
+                logging.info(f"Added new token to processed list: {found_ca}")
+            
+            return found_ca
                 
         logging.info("No CA match found")
         return None
@@ -578,7 +603,7 @@ DEBUG=false
                     print("\n📊 Monitoring Statistics:")
                     print("=" * 50)
                     print(f"✓ Messages Processed: {self.processed_count}")
-                    print(f"✓ Tokens Found: {self.forwarded_count}")
+                    print(f"�� Tokens Found: {self.forwarded_count}")
                     print(f"✓ Tracked Tokens: {len(self.token_tracker.tracked_tokens)}")
                     print(f"✓ Uptime: {hours}h {minutes}m")
                     print(f"✓ Active Channels: {len(self.source_chats)}")
@@ -692,7 +717,7 @@ DEBUG=false
                         TARGET_CHAT,
                         f"🔔 New Token Detected\n\n"
                         f"💎 CA: `{ca}`\n\n"
-                        f"���� Source: {chat.title}\n"
+                        f"Source: {chat.title}\n"
                         f"👤 From: {sender_name}\n\n"
                         f"Quick Links:\n"
                         f"• Birdeye: https://birdeye.so/token/{ca}\n"
