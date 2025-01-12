@@ -683,15 +683,7 @@ DEBUG=false
             if not message or not message.message:
                 return
             
-            # Check if this chat has user filters
-            chat_id = str(message.chat_id)
-            if chat_id in self.filtered_users:
-                # If we have filtered users for this chat, check if sender is in the list
-                if message.sender_id not in self.filtered_users[chat_id]:
-                    # Skip messages from non-filtered users
-                    return
-            
-            # Get chat and sender info
+            # Get chat and sender info first
             try:
                 chat = await self.client.get_entity(message.chat_id)
                 sender = await self.client.get_entity(message.sender_id) if message.sender_id else None
@@ -707,7 +699,7 @@ DEBUG=false
                     else:
                         sender_name = f"ID: {message.sender_id}"
                 
-                # Display message in feed if enabled
+                # Always display message in feed if enabled
                 if self.show_detailed_feed:
                     print(f"\n📨 New Message")
                     print(f"From: {chat.title}")
@@ -715,12 +707,37 @@ DEBUG=false
                     print("-" * 50)
                     print(message.message)
                     print("-" * 50)
+                    
+                    # Check user filters
+                    chat_id = str(message.chat_id)
+                    if chat_id in self.filtered_users:
+                        if message.sender_id not in self.filtered_users[chat_id]:
+                            print("❌ Not forwarding: User not in filter list")
+                            return
+                    
+                    # Extract and check for contract address
+                    ca = await self.extract_ca_from_text(message.message)
+                    if not ca:
+                        print("❌ Not forwarding: No contract address found")
+                        return
+                    
+                    print(f"✅ Found contract address: {ca}")
+                    print("🔄 Forwarding to target chat...")
                 
                 logging.info(f"Source message from {chat.title} by {sender_name}")
                 
             except Exception as e:
                 logging.error(f"Error getting message details: {e}")
+                if self.show_detailed_feed:
+                    print(f"❌ Error getting message details: {str(e)}")
+                return
                 
+            # Check user filters
+            chat_id = str(message.chat_id)
+            if chat_id in self.filtered_users:
+                if message.sender_id not in self.filtered_users[chat_id]:
+                    return
+            
             # Extract contract address if present
             ca = await self.extract_ca_from_text(message.message)
             if ca:
@@ -732,12 +749,18 @@ DEBUG=false
                         ca  # Send only the CA, preserving original case
                     )
                     logging.info(f"Successfully forwarded CA: {ca}")
+                    if self.show_detailed_feed:
+                        print("✅ Successfully forwarded to target chat")
                 except Exception as e:
                     logging.error(f"Error forwarding message: {e}")
+                    if self.show_detailed_feed:
+                        print(f"❌ Error forwarding to target chat: {str(e)}")
             
         except Exception as e:
             logging.error(f"Error handling source message: {str(e)}")
             logging.exception("Full traceback:")
+            if self.show_detailed_feed:
+                print(f"❌ Error processing message: {str(e)}")
 
     async def handle_target_message(self, event):
         """Process messages from target chat for market cap tracking"""
