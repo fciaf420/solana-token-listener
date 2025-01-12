@@ -203,10 +203,15 @@ DEBUG=false
             print("✓ .env file found")
 
     def load_config(self) -> dict:
+        """Load configuration from file"""
         if os.path.exists(CONFIG_FILE):
             try:
                 with open(CONFIG_FILE, 'r') as f:
-                    return json.load(f)
+                    config = json.load(f)
+                    # Ensure filtered_users is loaded properly
+                    self.filtered_users = config.get('filtered_users', {})
+                    logging.info(f"Loaded filtered users: {self.filtered_users}")
+                    return config
             except Exception as e:
                 logging.error(f"Error loading config: {str(e)}")
         return {
@@ -216,6 +221,7 @@ DEBUG=false
         }
 
     def save_config(self):
+        """Save configuration to file"""
         try:
             if not self.config.get('session_string'):
                 self.config['session_string'] = self.client.session.save()
@@ -223,6 +229,8 @@ DEBUG=false
             self.config['filtered_users'] = self.filtered_users
             with open(CONFIG_FILE, 'w') as f:
                 json.dump(self.config, f, indent=4)
+            logging.info("Configuration saved successfully")
+            logging.info(f"Filtered users: {self.filtered_users}")
         except Exception as e:
             logging.error(f"Error saving config: {str(e)}")
 
@@ -680,21 +688,53 @@ DEBUG=false
                 chat = await message.get_chat()
                 sender = await message.get_sender()
                 
+                # Ensure consistent chat ID format - always include minus sign
+                chat_id = f"-{abs(chat.id)}"
+                
+                # Ensure consistent user ID format
+                sender_id = str(sender.id) if sender and sender.id > 0 else str(sender.id) if sender else None
+                
+                # Debug logging for filtering
+                logging.warning(f"Processing message from chat: {chat_id}")
+                logging.warning(f"Sender ID: {sender_id}")
+                logging.warning(f"Current filtered users config: {self.filtered_users}")
+                
                 if self.show_detailed_feed:
                     print(f"\n📨 New Message")
                     print(f"From: {chat.title}")
                     print(f"By: {sender.username if sender else 'Unknown'}")
+                    print(f"Sender ID: {sender_id}")
+                    print(f"Chat ID: {chat_id}")
                     print("-" * 50)
                     print(message.message)
                     print("-" * 50)
                 
-                # Check user filters
-                chat_id = str(chat.id)
+                # STRICT user filter check
                 if chat_id in self.filtered_users:
-                    if sender and sender.id not in self.filtered_users[chat_id]:
+                    # Convert config users to strings for consistent comparison
+                    config_users = [str(user_id) for user_id in self.config.get('filtered_users', {}).get(chat_id, [])]
+                    
+                    if not sender_id:
+                        logging.warning(f"Skipping message: No sender info for chat {chat_id}")
                         if self.show_detailed_feed:
-                            print("❌ Not forwarding: User not in filter list")
+                            print("❌ Not forwarding: Could not determine message sender")
                         return
+                        
+                    if sender_id not in config_users:
+                        logging.warning(f"Skipping message: User {sender_id} not in filtered list for chat {chat_id}")
+                        if self.show_detailed_feed:
+                            print(f"❌ Not forwarding: User {sender.username} ({sender_id}) not in filter list")
+                            print(f"Allowed users for this chat: {config_users}")
+                        return
+                        
+                    logging.warning(f"User {sender_id} is in filtered list for chat {chat_id}")
+                    if self.show_detailed_feed:
+                        print(f"✅ User {sender.username} ({sender_id}) is in filter list")
+                else:
+                    if self.show_detailed_feed:
+                        print("❌ Not forwarding: Message is from unfiltered chat")
+                        print(f"This chat ({chat_id}) should have filters according to config")
+                    return
                 
                 # Extract contract address
                 contract_address = await self.extract_ca_from_text(message.message)
@@ -1206,16 +1246,27 @@ DEBUG=false
             except:
                 chat_name = str(chat_id)
             
+            # Ensure consistent chat ID format
+            chat_id_str = str(chat_id) if chat_id > 0 else str(chat_id)
+            
             print(f"\n🔍 Chat {i} of {len(self.source_chats)}")
             print(f"Channel: {chat_name}")
-            print(f"Chat ID: {chat_id}")
+            print(f"Chat ID: {chat_id_str}")
             print("=" * 50)
             
             filtered_users = await self.display_user_filter_menu(chat_id)
             if filtered_users:
-                self.filtered_users[str(chat_id)] = filtered_users
+                # Convert user IDs to strings for storage
+                self.filtered_users[chat_id_str] = [int(user_id) for user_id in filtered_users]
                 print(f"✅ User filter set for {chat_name}")
+                # Save immediately after setting filters
+                self.save_config()
+                print(f"💾 Saved {len(filtered_users)} filtered users for {chat_name}")
             else:
+                # Remove any existing filters for this chat
+                if chat_id_str in self.filtered_users:
+                    del self.filtered_users[chat_id_str]
+                    self.save_config()
                 print(f"👥 Monitoring all users in {chat_name}")
             
             if i < len(self.source_chats):
@@ -1224,7 +1275,7 @@ DEBUG=false
                     print("\n⏩ Skipping remaining chat configurations...")
                     break
         
-        # Show summary
+        # Show summary and verify saved filters
         print("\n📊 Configuration Summary")
         print("=" * 50)
         for chat_id in self.source_chats:
@@ -1233,11 +1284,23 @@ DEBUG=false
                 chat_name = entity.title
                 if str(chat_id) in self.filtered_users:
                     user_count = len(self.filtered_users[str(chat_id)])
+                    filtered_users_list = self.filtered_users[str(chat_id)]
                     print(f"✓ {chat_name}: Monitoring {user_count} specific users")
+                    print("  User IDs:", filtered_users_list)
                 else:
                     print(f"✓ {chat_name}: Monitoring all users")
             except:
                 print(f"✓ Chat {chat_id}: Configuration saved")
+        
+        # Verify config was saved
+        print("\n🔍 Verifying saved configuration...")
+        saved_config = self.load_config()
+        if 'filtered_users' in saved_config:
+            print("✅ User filters saved successfully")
+            for chat_id, users in saved_config['filtered_users'].items():
+                print(f"  Chat {chat_id}: {len(users)} filtered users")
+        else:
+            print("❌ Warning: User filters may not have been saved properly")
 
     async def manage_tracked_tokens(self):
         """Manage currently tracked tokens"""
