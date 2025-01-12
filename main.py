@@ -248,28 +248,18 @@ DEBUG=false
             match = re.search(pattern, text)
             if match:
                 ca = match.group(1)
-                # Normalize the CA (remove any potential formatting)
-                normalized_ca = ca.strip().upper()
-                
-                # Log all variations found
-                if found_ca and found_ca != normalized_ca:
-                    logging.warning(f"Multiple CAs found in message: {found_ca} vs {normalized_ca}")
-                    # Use the first one found to be consistent
+                # Keep original case
+                if found_ca and found_ca.lower() != ca.lower():
+                    logging.warning(f"Multiple CAs found in message: {found_ca} vs {ca}")
                     continue
                 
-                found_ca = normalized_ca
+                found_ca = ca
                 logging.info(f"Found CA: {found_ca}")
         
         if found_ca:
-            # Check if any variation of this CA exists in processed tokens
-            normalized_processed = [token.strip().upper() for token in self.processed_tokens]
-            if found_ca in normalized_processed:
-                logging.info(f"⏩ Skipping duplicate token (normalized): {found_ca}")
-                return None
-            
-            # If it's truly new, add the normalized version
-            if found_ca not in self.processed_tokens:
-                self.processed_tokens.append(found_ca)
+            # Check if any variation of this CA exists in processed tokens (case-insensitive)
+            if found_ca.lower() not in [token.lower() for token in self.processed_tokens]:
+                self.processed_tokens.append(found_ca)  # Store original case
                 self.save_processed_tokens()
                 logging.info(f"Added new token to processed list: {found_ca}")
             
@@ -603,7 +593,7 @@ DEBUG=false
                     print("\n📊 Monitoring Statistics:")
                     print("=" * 50)
                     print(f"✓ Messages Processed: {self.processed_count}")
-                    print(f"�� Tokens Found: {self.forwarded_count}")
+                    print(f"✓ Tokens Found: {self.forwarded_count}")
                     print(f"✓ Tracked Tokens: {len(self.token_tracker.tracked_tokens)}")
                     print(f"✓ Uptime: {hours}h {minutes}m")
                     print(f"✓ Active Channels: {len(self.source_chats)}")
@@ -1012,11 +1002,7 @@ DEBUG=false
                     f"Source: {chat.title}\n"
                     f"Posted by: @{sender.username or sender.first_name}\n"
                     f"Type: {content_type}\n"
-                    f"CA: {contract_address}\n"
-                    f"Quick Links:\n"
-                    f"• Birdeye: https://birdeye.so/token/{contract_address}\n"
-                    f"• Solscan: https://solscan.io/token/{contract_address}\n"
-                    f"• Jupiter: https://jup.ag/swap/SOL-{contract_address}"
+                    f"CA: {contract_address}"
                 )
             except Exception as e:
                 logging.error(f"Error getting message details: {e}")
@@ -1051,9 +1037,10 @@ DEBUG=false
                         logging.debug(f"Failed to resolve as direct string: {e}")
 
                 if target_entity:
+                    # Forward only the contract address
                     await self.client.send_message(
                         target_entity,
-                        contract_address
+                        contract_address  # Send only the CA, preserving original case
                     )
                     logging.info(f"Successfully forwarded CA to {TARGET_CHAT}")
                 else:
