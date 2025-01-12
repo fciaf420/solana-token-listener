@@ -390,15 +390,22 @@ DEBUG=false
                         for idx in indices:
                             if 0 <= idx < len(users_list):
                                 user_id, username = users_list[idx]
-                                selected_users.append(user_id)
-                                print(f"✅ Added: {username}")
+                                if user_id not in selected_users:  # Avoid duplicates
+                                    selected_users.append(user_id)
+                                    print(f"✅ Added: {username} (ID: {user_id})")
                     except ValueError:
-                        print(" Please enter valid numbers")
+                        print("❌ Please enter valid numbers")
                 
-                return selected_users if selected_users else None
+                if selected_users:
+                    print(f"\n✅ Selected {len(selected_users)} users to monitor")
+                    return selected_users
+                else:
+                    print("\n❌ No users selected, will monitor all users")
+                    return None
                 
             except Exception as e:
                 logging.error(f"Error loading users: {e}")
+                print(f"\n❌ Error: {str(e)}")
                 return None
         
         return None  # Monitor all users
@@ -676,6 +683,14 @@ DEBUG=false
             if not message or not message.message:
                 return
             
+            # Check if this chat has user filters
+            chat_id = str(message.chat_id)
+            if chat_id in self.filtered_users:
+                # If we have filtered users for this chat, check if sender is in the list
+                if message.sender_id not in self.filtered_users[chat_id]:
+                    # Skip messages from non-filtered users
+                    return
+            
             # Get chat and sender info
             try:
                 chat = await self.client.get_entity(message.chat_id)
@@ -692,6 +707,15 @@ DEBUG=false
                     else:
                         sender_name = f"ID: {message.sender_id}"
                 
+                # Display message in feed if enabled
+                if self.show_detailed_feed:
+                    print(f"\n📨 New Message")
+                    print(f"From: {chat.title}")
+                    print(f"By: {sender_name}")
+                    print("-" * 50)
+                    print(message.message)
+                    print("-" * 50)
+                
                 logging.info(f"Source message from {chat.title} by {sender_name}")
                 
             except Exception as e:
@@ -705,15 +729,7 @@ DEBUG=false
                 try:
                     await self.client.send_message(
                         TARGET_CHAT,
-                        f"🔔 New Token Detected\n\n"
-                        f"💎 CA: `{ca}`\n\n"
-                        f"Source: {chat.title}\n"
-                        f"👤 From: {sender_name}\n\n"
-                        f"Quick Links:\n"
-                        f"• Birdeye: https://birdeye.so/token/{ca}\n"
-                        f"• Solscan: https://solscan.io/token/{ca}\n"
-                        f"• Jupiter: https://jup.ag/swap/SOL-{ca}",
-                        parse_mode='markdown'
+                        ca  # Send only the CA, preserving original case
                     )
                     logging.info(f"Successfully forwarded CA: {ca}")
                 except Exception as e:
