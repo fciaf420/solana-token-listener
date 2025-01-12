@@ -1,209 +1,176 @@
-# Solana Token Listener Bot
+# Solana Token Listener Bot 🚀
 
-A Telegram bot that monitors channels for Solana token contract addresses, forwards them to a target channel, and tracks token market cap multiples using Jupiter API with GeckoTerminal API as backup.
+A Telegram bot that helps you monitor Solana tokens from source chats and track their market performance.
 
-## Features
+## 🌟 Features
 
-### Token Monitoring
-- Monitors specified Telegram channels for Solana token contract addresses
-- Forwards found tokens to a target channel
-- Supports multiple source channels
-- User filtering per channel
-- Keyword blacklist/whitelist
+- Monitor specific users in Telegram chats for token mentions
+- Forward token contract addresses to your target chat
+- Track market cap and price multiples
+- Detailed feed showing all monitored messages
+- User-friendly setup and configuration
 
-### Token Market Cap Tracking
-- Automatically tracks market cap for tokens you buy
-- Notifies you when tokens hit new multipliers (2x, 3x, etc.)
-- Uses Jupiter API with automatic retries (3 attempts)
-- GeckoTerminal API as backup when Jupiter fails
-- Batch processing for efficient tracking of multiple tokens
-- Tracks any whole number multiple (2x, 3x, ..., 15x, 22x, etc.)
-- Automatically removes tokens when sell messages are detected
+## 📋 Prerequisites
 
-### Message Detection
-- Buy Message Format:
-  ```
-  Buy $TOKEN - (details)
-  CA: ADDRESS
-  MC: $100K
-  ```
-- Sell Message Format:
-  ```
-  Sell $TOKEN - (details)
-  🟢 sell success
-  ```
-- Supports various message formats and links:
-  - Birdeye links
-  - DexScreener links
-  - Solscan links
-  - Jupiter links
-  - Raw contract addresses
+Before you start, you'll need:
+1. Python 3.8 or higher installed on your computer
+2. A Telegram account
+3. Your Telegram API credentials (we'll help you get these!)
 
-### Interactive Menu
-- Quick start with saved settings
-- Channel configuration
-- User filtering
-- Keyword management
-- Token tracking status
-- Real-time monitoring statistics
+## 🔧 Initial Setup
 
-## Setup
+### Step 1: Get Your Telegram API Credentials
+1. Visit https://my.telegram.org/auth
+2. Log in with your phone number
+3. Click on "API development tools"
+4. Create a new application (any name and short name will work)
+5. Save your `api_id` and `api_hash` - you'll need these later!
 
-1. Clone the repository:
-```bash
-git clone [repository-url]
-cd [repository-name]
-```
-
-2. Install dependencies:
+### Step 2: Install Python Dependencies
+1. Open a terminal/command prompt
+2. Navigate to the bot's directory
+3. Run this command:
 ```bash
 pip install -r requirements.txt
 ```
 
-3. Create a `.env` file from the template:
-```bash
-cp .env.sample .env
+### Step 3: Set Up Environment Variables
+1. Find the `.env.sample` file in the project
+2. Make a copy and rename it to `.env`
+3. Open `.env` and fill in your details:
+```
+API_ID=your_api_id_here
+API_HASH=your_api_hash_here
+TARGET_CHAT=your_target_chat_here
+TRACKING_CHAT=your_tracking_chat_here
 ```
 
-4. Fill in your `.env` file:
-```env
-# Get these from https://my.telegram.org/apps
-API_ID=your_api_id
-API_HASH=your_api_hash
+## 🚀 Running the Bot
 
-# Target chat for forwarding tokens (username without @ or channel ID)
-TARGET_CHAT=your_target_chat
-
-# Where to send tracking notifications (default: 'me' for Saved Messages)
-TRACKING_CHAT=me
-
-# Optional settings
-DEBUG=false
-```
-
-## Usage
-
-1. Start the bot:
+1. Open a terminal/command prompt
+2. Navigate to the bot's directory
+3. Run:
 ```bash
 python main.py
 ```
 
-2. Main Menu Options:
-- `0`: Quick Start - Resume monitoring with saved settings
-- `1`: Start Monitoring
-- `2`: Configure Channels
-- `3`: View Current Settings
-- `4`: Manage Keyword Filters
-- `5`: View Tracked Tokens
-- `6`: Exit
+4. On first run:
+   - You'll be asked to enter your phone number
+   - Telegram will send you a code - enter it when prompted
+   - The bot will save your session for future use
 
-3. Monitoring Commands:
-- `feed`: Toggle detailed message feed
-- `stats`: Show monitoring statistics
-- `add`: Add new channels
-- `list`: Show monitored channels
-- `remove`: Remove channels
-- `tokens`: Show tracked tokens
-- `stop`: Stop monitoring
+## 📱 Basic Commands
 
-## Token Tracking
+When the bot is running, you can use these commands:
+- `add` - Add new chats to monitor
+- `list` - Show all monitored chats
+- `remove` - Remove chats from monitoring
+- `feed` - Toggle detailed message feed
+- `stats` - Show bot statistics
+- `tokens` - Manage tracked tokens
+- `stop` - Stop the bot
 
-### How It Works
-1. When you buy a token (message starting with "Buy $"), the bot:
-   - Extracts the contract address
-   - Records initial market cap from the message
-   - Starts tracking the token
+## 🔍 How It Works
 
-2. The tracker:
-   - Uses Jupiter API to check market cap every minute
-   - Calculates current multiple from initial market cap
-   - Sends notification when new whole number multiples are hit (2x, 3x, etc.)
-   - Shows current status in startup summary
+### 1. Source Chat Monitoring
+- The bot watches messages in your chosen source chats
+- It looks for Solana contract addresses in various formats:
+  - Raw addresses
+  - DexScreener links
+  - Birdeye links
+  - Jupiter links
+  - And more!
 
-3. When you sell a token (message starting with "Sell $"):
-   - Token is removed from tracking
-   - No more notifications for that token
-   - Token is added to sold list to prevent re-tracking
+### 2. User Filtering
+- For each source chat, you can choose specific users to monitor
+- Only messages from these users will be processed
+- Other users' messages will be ignored
 
-### Startup Summary
-When starting the bot, you'll see a summary like this:
+### 3. Token Forwarding
+- When a valid contract address is found, it's forwarded to your target chat
+- Each token is only forwarded once to avoid duplicates
+- The bot maintains a list of processed tokens
+
+### 4. Market Cap Tracking
+- The bot tracks market cap for forwarded tokens
+- It checks prices using Jupiter API (with GeckoTerminal as backup)
+- You'll get notifications when tokens hit significant multiples (2x, 3x, etc.)
+
+### 5. Detailed Feed
+- See every message the bot processes in real-time
+- Know exactly why messages are forwarded or filtered
+- Track user activity and token discoveries
+
+## ⚙️ Advanced Configuration
+
+### Managing User Filters
+1. Use the `add` command to select chats
+2. For each chat, you can:
+   - Choose specific users to monitor
+   - Monitor all users
+   - Remove existing filters
+
+### Token Management
+1. Use the `tokens` command to:
+   - View all tracked tokens
+   - Remove specific tokens
+   - Clear all tracking data
+
+## 🆘 Troubleshooting
+
+### Common Issues:
+
+1. **Bot won't connect:**
+   - Check your internet connection
+   - Verify API credentials in .env file
+   - Ensure your Telegram session is valid
+
+2. **Messages not forwarding:**
+   - Confirm source chat configuration
+   - Check user filters
+   - Verify target chat settings
+
+3. **Market cap not updating:**
+   - Check your internet connection
+   - Verify the token contract is valid
+   - Wait a few minutes and try again
+
+### Need Help?
+- Check the detailed logs in the `logs` directory
+- Look for error messages in the console
+- Make sure all configuration files exist
+
+## 🔐 Security Notes
+
+- Never share your `session_string` or `.env` file
+- Keep your API credentials private
+- Don't run multiple instances of the bot with the same session
+
+## 📝 Files You Should Know About
+
+- `.env` - Your private configuration
+- `sol_listener_config.json` - Bot settings and filters
+- `processed_tokens.json` - List of processed tokens
+- `tracked_tokens.json` - Current token tracking data
+
+## 🔄 Updating the Bot
+
+To update to the latest version:
+1. Save your `.env` file
+2. Pull the latest changes:
+```bash
+git pull
 ```
-📊 Initial Token Check Summary
-==================================================
-Initial tokens: 13
-🗑️ Removed tokens: 0
-✨ Added tokens: 0
-📈 Now tracking 13 tokens
+3. Restore your `.env` file if needed
+4. Restart the bot
 
-📈 Current Token Status:
-• TOKEN1: 1.05x ($21,064.51)
-• TOKEN2: 0.92x ($26,794.40)
-• TOKEN3: 1.12x ($46,476.00)
-==================================================
-```
+## 💡 Tips
 
-### Notifications
-You'll receive notifications in your Telegram Saved Messages when tokens hit new multipliers:
-```
-💰 Token Multiple Alert 💰
+1. Start with one or two source chats until you're comfortable
+2. Use the detailed feed to understand what the bot is doing
+3. Regularly check your tracked tokens
+4. Back up your configuration files
+5. Monitor the bot's performance and adjust filters as needed
 
-🪙 Token: TOKEN_NAME
-🎯 Multiple: 5x
-
-📊 Market Cap:
-  • Initial: $100,000.00
-  • Current: $500,000.00
-  • Change: +$400,000.00
-
-⏱ Time since entry: 2h 30m
-
-🔗 Quick Links:
-• Birdeye: https://birdeye.so/token/...
-• DexScreener: https://dexscreener.com/solana/...
-• Solscan: https://solscan.io/token/...
-```
-
-### Rate Limiting
-- Uses Jupiter API rate limit (600 calls/minute)
-- Automatically batches requests for multiple tokens
-- Adapts check frequency based on number of tracked tokens
-- Minimum 60-second interval between checks per token
-- Automatic retries with 2-second delays
-- Fallback to GeckoTerminal API when Jupiter fails
-
-## Price Data Sources
-1. Primary: Jupiter API
-   - 3 retry attempts with 2-second delays
-   - Rate limited to 600 calls/minute
-   - Used for initial price checks
-
-2. Backup: GeckoTerminal API
-   - Used when Jupiter API fails
-   - Public endpoints (no API key needed)
-   - Provides both FDV and Market Cap values
-   - More resilient for some tokens
-
-## Files
-- `main.py`: Main bot logic and Telegram interface
-- `token_tracker.py`: Token market cap tracking system using Jupiter API
-- `tracked_tokens.json`: Persistent storage of tracked tokens
-- `sold_tokens.json`: List of sold tokens to prevent re-tracking
-- `.env`: Configuration and API credentials
-- `requirements.txt`: Python dependencies
-
-## Dependencies
-- telethon
-- python-dotenv
-- aiohttp
-- asyncio
-- logging
-
-## Notes
-- Initial market cap is taken from the buy message
-- Ongoing market cap updates use Jupiter's Price API V2
-- Market cap updates are calculated using Jupiter price and on-chain supply data
-- Token tracking data is saved between bot restarts
-- Notifications are sent to your Telegram Saved Messages by default
-- Cleanup checks run every hour to remove sold tokens
-- Catchup checks run every 15 minutes to find missed buy/sell signals
+Need more help? Feel free to reach out!
   
