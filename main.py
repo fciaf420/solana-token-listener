@@ -127,7 +127,8 @@ class SimpleSolListener:
         tracking_chat = os.getenv('TRACKING_CHAT', 'me')  # Default to 'me' if not set
         self.token_tracker = TokenTracker(self.client, notification_target=tracking_chat)
         
-        self.processed_tokens = self.load_processed_tokens()
+        self.processed_tokens = set()  # Initialize as empty set
+        self.load_processed_tokens()  # Load existing tokens
         self.start_time = time.time()
         
         self.processed_count = 0
@@ -255,18 +256,9 @@ DEBUG=false
                 
                 found_ca = ca
                 logging.info(f"Found CA: {found_ca}")
+                break  # Stop after finding first valid CA
         
-        if found_ca:
-            # Check if any variation of this CA exists in processed tokens (case-insensitive)
-            if found_ca.lower() not in [token.lower() for token in self.processed_tokens]:
-                self.processed_tokens.append(found_ca)  # Store original case
-                self.save_processed_tokens()
-                logging.info(f"Added new token to processed list: {found_ca}")
-            
-            return found_ca
-                
-        logging.info("No CA match found")
-        return None
+        return found_ca
 
     async def process_message_content(self, message) -> tuple[str, str]:
         """Process different types of message content"""
@@ -683,82 +675,62 @@ DEBUG=false
             if not message or not message.message:
                 return
             
-            # Get chat and sender info first
+            # Get chat and sender info
             try:
-                chat = await self.client.get_entity(message.chat_id)
-                sender = await self.client.get_entity(message.sender_id) if message.sender_id else None
-                sender_name = None
+                chat = await message.get_chat()
+                sender = await message.get_sender()
                 
-                if sender:
-                    if hasattr(sender, 'username') and sender.username:
-                        sender_name = f"@{sender.username}"
-                    elif hasattr(sender, 'title'):  # It's a channel
-                        sender_name = f"Channel: {sender.title}"
-                    elif hasattr(sender, 'first_name'):  # It's a user
-                        sender_name = sender.first_name
-                    else:
-                        sender_name = f"ID: {message.sender_id}"
-                
-                # Always display message in feed if enabled
                 if self.show_detailed_feed:
                     print(f"\n📨 New Message")
                     print(f"From: {chat.title}")
-                    print(f"By: {sender_name}")
+                    print(f"By: {sender.username if sender else 'Unknown'}")
                     print("-" * 50)
                     print(message.message)
                     print("-" * 50)
-                    
-                    # Check user filters
-                    chat_id = str(message.chat_id)
-                    if chat_id in self.filtered_users:
-                        if message.sender_id not in self.filtered_users[chat_id]:
+                
+                # Check user filters
+                chat_id = str(chat.id)
+                if chat_id in self.filtered_users:
+                    if sender and sender.id not in self.filtered_users[chat_id]:
+                        if self.show_detailed_feed:
                             print("❌ Not forwarding: User not in filter list")
-                            return
-                    
-                    # Extract and check for contract address
-                    ca = await self.extract_ca_from_text(message.message)
-                    if not ca:
-                        print("❌ Not forwarding: No contract address found")
                         return
-                    
-                    print(f"✅ Found contract address: {ca}")
+                
+                # Extract contract address
+                contract_address = await self.extract_ca_from_text(message.message)
+                if not contract_address:
+                    if self.show_detailed_feed:
+                        print("❌ Not forwarding: No contract address found")
+                    return
+                
+                # Check if already processed (case-insensitive)
+                if contract_address.lower() in {t.lower() for t in self.processed_tokens}:
+                    if self.show_detailed_feed:
+                        print("❌ Not forwarding: Token already processed")
+                    return
+                
+                if self.show_detailed_feed:
+                    print(f"✅ Found contract address: {contract_address}")
                     print("🔄 Forwarding to target chat...")
                 
-                logging.info(f"Source message from {chat.title} by {sender_name}")
+                # Forward to target chat
+                await self.forward_message(contract_address)
+                
+                # Add to processed tokens after successful forwarding
+                self.processed_tokens.add(contract_address)
+                self.save_processed_tokens()
+                
+                if self.show_detailed_feed:
+                    print("✅ Successfully forwarded to target chat")
                 
             except Exception as e:
-                logging.error(f"Error getting message details: {e}")
+                logging.error(f"Error getting message details: {str(e)}")
                 if self.show_detailed_feed:
                     print(f"❌ Error getting message details: {str(e)}")
                 return
                 
-            # Check user filters
-            chat_id = str(message.chat_id)
-            if chat_id in self.filtered_users:
-                if message.sender_id not in self.filtered_users[chat_id]:
-                    return
-            
-            # Extract contract address if present
-            ca = await self.extract_ca_from_text(message.message)
-            if ca:
-                logging.info(f"Found contract address: {ca}")
-                # Forward to target chat
-                try:
-                    await self.client.send_message(
-                        TARGET_CHAT,
-                        ca  # Send only the CA, preserving original case
-                    )
-                    logging.info(f"Successfully forwarded CA: {ca}")
-                    if self.show_detailed_feed:
-                        print("✅ Successfully forwarded to target chat")
-                except Exception as e:
-                    logging.error(f"Error forwarding message: {e}")
-                    if self.show_detailed_feed:
-                        print(f"❌ Error forwarding to target chat: {str(e)}")
-            
         except Exception as e:
             logging.error(f"Error handling source message: {str(e)}")
-            logging.exception("Full traceback:")
             if self.show_detailed_feed:
                 print(f"❌ Error processing message: {str(e)}")
 
@@ -1029,70 +1001,17 @@ DEBUG=false
                 
         return True
 
-    async def forward_message(self, message, contract_address, content_type="text"):
+    async def forward_message(self, contract_address):
         """Forward contract address to target chat"""
         try:
-            # Log details to terminal only
-            try:
-                chat = await self.client.get_entity(message.chat_id)
-                sender = await self.client.get_entity(message.sender_id)
-                logging.info(
-                    f"\nToken Found!\n"
-                    f"Source: {chat.title}\n"
-                    f"Posted by: @{sender.username or sender.first_name}\n"
-                    f"Type: {content_type}\n"
-                    f"CA: {contract_address}"
-                )
-            except Exception as e:
-                logging.error(f"Error getting message details: {e}")
-
-            # Resolve target chat
-            try:
-                target_entity = None
-                
-                # Method 1: Try with @ prefix
-                if not target_entity:
-                    try:
-                        target_entity = await self.client.get_entity(f"@{TARGET_CHAT}")
-                        logging.info("Resolved target chat using @ prefix")
-                    except Exception as e:
-                        logging.debug(f"Failed to resolve with @ prefix: {e}")
-
-                # Method 2: Try as channel ID
-                if not target_entity and TARGET_CHAT.replace('-', '').isdigit():
-                    try:
-                        chat_id = int(TARGET_CHAT) if TARGET_CHAT.startswith('-') else int(f"-100{TARGET_CHAT}")
-                        target_entity = await self.client.get_entity(chat_id)
-                        logging.info("Resolved target chat using ID")
-                    except Exception as e:
-                        logging.debug(f"Failed to resolve as channel ID: {e}")
-
-                # Method 3: Try direct string
-                if not target_entity:
-                    try:
-                        target_entity = await self.client.get_entity(TARGET_CHAT)
-                        logging.info("Resolved target chat using direct string")
-                    except Exception as e:
-                        logging.debug(f"Failed to resolve as direct string: {e}")
-
-                if target_entity:
-                    # Forward only the contract address
-                    await self.client.send_message(
-                        target_entity,
-                        contract_address  # Send only the CA, preserving original case
-                    )
-                    logging.info(f"Successfully forwarded CA to {TARGET_CHAT}")
-                else:
-                    raise ValueError(f"Could not resolve target chat: {TARGET_CHAT}")
-
-            except Exception as e:
-                logging.error(f"Error resolving target chat: {str(e)}")
-                logging.error(f"Target chat value: {TARGET_CHAT}")
-                raise
-
+            target_entity = await self.client.get_entity(TARGET_CHAT)
+            if target_entity:
+                await self.client.send_message(target_entity, contract_address)
+                self.forwarded_count += 1
+                logging.info(f"Successfully forwarded CA to {TARGET_CHAT}")
         except Exception as e:
             logging.error(f"Error forwarding message: {str(e)}")
-            # Don't raise here to continue processing other messages
+            raise
 
     async def get_dialogs(self) -> List[Dict]:
         """Fetch and return all dialogs (chats/channels)"""
@@ -1107,30 +1026,40 @@ DEBUG=false
                 })
         return dialogs
 
-    def load_processed_tokens(self) -> list:
+    def load_processed_tokens(self):
+        """Load processed tokens from JSON file"""
         tokens_file = BASE_DIR / 'processed_tokens.json'
         if tokens_file.exists():
             try:
-                return json.loads(tokens_file.read_text())
+                with open(tokens_file, 'r') as f:
+                    self.processed_tokens = set(json.load(f))
+                logging.info(f"Loaded {len(self.processed_tokens)} processed tokens")
             except Exception as e:
                 logging.error(f"Error loading processed tokens: {str(e)}")
-        return []
+                self.processed_tokens = set()
+        else:
+            self.processed_tokens = set()
 
     def save_processed_tokens(self):
+        """Save processed tokens to JSON file"""
         try:
             tokens_file = BASE_DIR / 'processed_tokens.json'
-            tokens_file.write_text(json.dumps(self.processed_tokens, indent=4))
+            with open(tokens_file, 'w') as f:
+                json.dump(list(self.processed_tokens), f, indent=4)
+            logging.info(f"Saved {len(self.processed_tokens)} processed tokens")
         except Exception as e:
             logging.error(f"Error saving processed tokens: {str(e)}")
 
     async def is_token_processed(self, contract_address: str) -> bool:
-        """Check if token was already processed"""
-        return contract_address in self.processed_tokens
+        """Check if token was already processed (case-insensitive)"""
+        return contract_address.lower() in {t.lower() for t in self.processed_tokens}
 
     async def add_processed_token(self, contract_address: str):
         """Add token to processed list"""
-        self.processed_tokens.add(contract_address)
-        self.save_processed_tokens()
+        if not await self.is_token_processed(contract_address):
+            self.processed_tokens.add(contract_address)  # Use add() for sets
+            self.save_processed_tokens()
+            logging.info(f"Added {contract_address} to processed tokens")
 
     async def monitor_health(self):
         """Monitor bot health and connection"""
