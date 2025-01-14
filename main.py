@@ -677,8 +677,10 @@ DEBUG=false
 
             # Show message details for all messages from monitored chats
             if self.show_detailed_feed:
+                # Get sender name safely - use first_name, last_name, or ID if username not available
+                sender_name = getattr(sender, 'username', None) or getattr(sender, 'first_name', None) or getattr(sender, 'last_name', None) or str(sender_id)
                 print(f"\n📨 Message from: {chat.title}")
-                print(f"👤 Sender: {getattr(sender, 'username', 'Unknown')} ({sender_id})")
+                print(f"👤 Sender: {sender_name} ({sender_id})")
                 print(f"💭 Chat ID: {chat_id}")
                 print(f"📝 Message: {message.message}")
 
