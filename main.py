@@ -88,7 +88,7 @@ try:
     TRACKING_CHAT = TRACKING_CHAT.lstrip('@').strip()  # Clean up tracking chat value
 except (ValueError, TypeError) as e:
     print("\n❌ Error with environment variables:")
-    print(f"1. Make sure you have a .env file in: {ENV_FILE}")
+    print("1. Make sure you have a .env file in: {ENV_FILE}")
     print("2. Your .env file should contain:")
     print("   API_ID=your_api_id_here")
     print("   API_HASH=your_api_hash_here")
@@ -102,43 +102,44 @@ except (ValueError, TypeError) as e:
 class SimpleSolListener:
     """Telegram bot for monitoring and forwarding Solana contract addresses"""
     
-    def __init__(self):
-        """Initialize the bot with environment and file structure checks"""
-        self.version = __version__
+    def __init__(self, client):
+        """Initialize the SimpleSolListener"""
+        load_dotenv()
         
-        print("\n🔍 Checking environment setup...")
-        if not self._check_environment():
-            raise Exception("Environment setup failed")
+        self.client = client  # NEW: store the passed-in client
+        self.config = {}
+        self.source_chats = []
+        self.filtered_users = {}
+        self.processed_tokens = set()
+        self.forwarded_count = 0
+        self.show_detailed_feed = False
+        self.dialogs_cache = {}
+        
+        # Track startup time and how many messages we've processed
+        self.start_time = time.time()     # NEW
+        self.processed_count = 0          # NEW
+
+        # Get target chat from environment
+        self.target_chat = os.getenv('TARGET_CHAT')
+        if not self.target_chat:
+            logging.error("TARGET_CHAT not set in environment variables")
+            raise ValueError("TARGET_CHAT environment variable is required")
             
-        print("\n📂 Setting up directory structure...")
-        required_dirs = [TEMP_DIR, LOGS_DIR]
-        for dir_path in required_dirs:
-            os.makedirs(dir_path, exist_ok=True)
-            print(f"✓ {dir_path.name}/")
-            
-        print("\n📄 Checking configuration files...")
+        # Initialize token tracker
+        tracking_chat = os.getenv('TRACKING_CHAT', 'me')
+        self.token_tracker = TokenTracker(self.client, tracking_chat)
+        
+        # Create required files
         self._initialize_config_files()
         
+        # Load existing configuration
         self.config = self.load_config()
-        session = StringSession(self.config.get('session_string', ''))
-        self.client = TelegramClient(session, API_ID, API_HASH)
-        
-        # Initialize token tracker with notification target from env
-        tracking_chat = os.getenv('TRACKING_CHAT', 'me')  # Default to 'me' if not set
-        self.token_tracker = TokenTracker(self.client, notification_target=tracking_chat)
-        
-        self.processed_tokens = set()  # Initialize as empty set
-        self.load_processed_tokens()  # Load existing tokens
-        self.start_time = time.time()
-        
-        self.processed_count = 0
-        self.forwarded_count = 0
         self.source_chats = self.config.get('source_chats', [])
-        self.filtered_users = self.config.get('filtered_users', {})
-        self.dialogs_cache = {}
-        self.verified = self.config.get('verified', False)
         
-        print("\n✅ Initialization complete!")
+        # Load processed tokens
+        self.load_processed_tokens()
+        
+        logging.info("SimpleSolListener initialized")
         
     def _check_environment(self) -> bool:
         """Check if all required environment variables are set"""
@@ -202,14 +203,26 @@ DEBUG=false
         else:
             print("✓ .env file found")
 
+    def normalize_chat_id(self, chat_id) -> str:
+        """Normalize chat ID to consistent format"""
+        return str(abs(int(chat_id)))
+
+    def normalize_user_id(self, user_id) -> str:
+        """Normalize user ID to consistent format"""
+        return str(abs(int(user_id)))
+
     def load_config(self) -> dict:
         """Load configuration from file"""
         if os.path.exists(CONFIG_FILE):
             try:
                 with open(CONFIG_FILE, 'r') as f:
                     config = json.load(f)
-                    # Ensure filtered_users is loaded properly
-                    self.filtered_users = config.get('filtered_users', {})
+                    # Normalize all IDs in filtered_users
+                    normalized_filters = {}
+                    for chat_id, users in config.get('filtered_users', {}).items():
+                        normalized_chat_id = self.normalize_chat_id(chat_id)
+                        normalized_filters[normalized_chat_id] = [self.normalize_user_id(uid) for uid in users]
+                    self.filtered_users = normalized_filters
                     logging.info(f"Loaded filtered users: {self.filtered_users}")
                     return config
             except Exception as e:
@@ -235,37 +248,43 @@ DEBUG=false
             logging.error(f"Error saving config: {str(e)}")
 
     async def extract_ca_from_text(self, text: str) -> str:
-        """Extract Solana CA from text"""
+        """Extract Solana CA from text with improved validation"""
         if not text:
             return None
-            
-        logging.info(f"Checking text for CA: {text}")
-        
-        # Common Solana link formats
+
+        logging.info(f"Checking text for CA: {text[:200]}...")  # Limit log length
+
+        # Updated regex patterns for better matching
         link_patterns = [
-            r'dexscreener\.com/solana/([1-9A-HJ-NP-Za-km-z]{32,44})',  # DexScreener
-            r'pump\.fun/coin/([1-9A-HJ-NP-Za-km-z]{32,44})',           # Pump.fun
-            r'gmgn\.ai/sol/token/([1-9A-HJ-NP-Za-km-z]{32,44})',       # GMGN
-            r'birdeye\.so/token/([1-9A-HJ-NP-Za-km-z]{32,44})',        # Birdeye
-            r'solscan\.io/token/([1-9A-HJ-NP-Za-km-z]{32,44})',        # Solscan
-            r'jup\.ag/swap/[^-]+-([1-9A-HJ-NP-Za-km-z]{32,44})',       # Jupiter
-            r'\b([1-9A-HJ-NP-Za-km-z]{32,44})\b'                       # Raw CA
+            r'(?:dexscreener\.com/solana|birdeye\.so/token|solscan\.io/token|jup\.ag/swap/[^-]+-|pump\.fun/coin|gmgn\.ai/sol/token)/([1-9A-HJ-NP-Za-km-z]{32,44})',
+            r'\b([1-9A-HJ-NP-Za-km-z]{32,44})\b'  # Raw CA as fallback
         ]
-        
+
         found_ca = None
         for pattern in link_patterns:
-            match = re.search(pattern, text)
-            if match:
+            matches = re.finditer(pattern, text)
+            for match in matches:
                 ca = match.group(1)
-                # Keep original case
-                if found_ca and found_ca.lower() != ca.lower():
-                    logging.warning(f"Multiple CAs found in message: {found_ca} vs {ca}")
-                    continue
                 
+                # Basic CA validation
+                if not ca or len(ca) < 32 or len(ca) > 44:
+                    continue
+                    
+                # Check for invalid characters
+                if not re.match(r'^[1-9A-HJ-NP-Za-km-z]+$', ca):
+                    continue
+
+                if found_ca and found_ca.lower() != ca.lower():
+                    logging.warning(f"Multiple distinct CAs found: {found_ca} vs {ca}")
+                    continue
+
                 found_ca = ca
-                logging.info(f"Found CA: {found_ca}")
-                break  # Stop after finding first valid CA
-        
+                logging.info(f"Found valid CA: {found_ca}")
+                break
+
+            if found_ca:
+                break
+
         return found_ca
 
     async def process_message_content(self, message) -> tuple[str, str]:
@@ -564,16 +583,23 @@ DEBUG=false
         # Start the token tracker monitoring in background
         token_tracker_task = asyncio.create_task(self.token_tracker.check_and_notify_multipliers())
         
-        # Register event handler for source chats (token forwarding)
+        # Register event handler for ALL messages, then filter in the handler
         @self.client.on(events.NewMessage())
-        async def source_message_handler(event):
-            if event.chat_id in self.source_chats:
-                await self.handle_source_message(event)
-        
-        # Register event handler for target chat (market cap tracking)
-        @self.client.on(events.NewMessage(chats=TARGET_CHAT))
-        async def target_message_handler(event):
-            await self.handle_target_message(event)
+        async def message_handler(event):
+            try:
+                # Convert chat_id to int for comparison
+                event_chat_id = abs(event.chat_id)
+                
+                # If it's a source chat message
+                if event_chat_id in [abs(x) for x in self.source_chats]:
+                    await self.handle_source_message(event)
+                # If it's the target chat - handle both numeric IDs and usernames
+                elif (str(event_chat_id) == str(TARGET_CHAT) if str(TARGET_CHAT).isdigit() 
+                      else event.chat.username == TARGET_CHAT.lstrip('@')):
+                    await self.handle_target_message(event)
+                    
+            except Exception as e:
+                logging.error(f"Error in message handler: {str(e)}")
         
         # Start health monitoring in background
         health_task = asyncio.create_task(self.monitor_health())
@@ -674,155 +700,158 @@ DEBUG=false
             pass
 
     async def handle_source_message(self, event):
-        """Handle messages from source chats"""
+        """Handle messages from source chats with improved error handling and logging"""
         try:
-            # Get the message
-            message = event.message
-            
-            # Skip if message is None
-            if not message or not message.message:
+            if not event or not event.message:
                 return
-            
-            # Get chat and sender info
+
+            self.processed_count += 1
+            message = event.message
+            if not message.message:
+                return
+
             try:
                 chat = await message.get_chat()
                 sender = await message.get_sender()
-                
-                # Ensure consistent chat ID format - always include minus sign
-                chat_id = f"-{abs(chat.id)}"
-                
-                # Ensure consistent user ID format
-                sender_id = str(sender.id) if sender and sender.id > 0 else str(sender.id) if sender else None
-                
-                # Debug logging for filtering
-                logging.warning(f"Processing message from chat: {chat_id}")
-                logging.warning(f"Sender ID: {sender_id}")
-                logging.warning(f"Current filtered users config: {self.filtered_users}")
-                
-                if self.show_detailed_feed:
-                    print(f"\n📨 New Message")
-                    print(f"From: {chat.title}")
-                    print(f"By: {sender.username if sender else 'Unknown'}")
-                    print(f"Sender ID: {sender_id}")
-                    print(f"Chat ID: {chat_id}")
-                    print("-" * 50)
-                    print(message.message)
-                    print("-" * 50)
-                
-                # STRICT user filter check
-                if chat_id in self.filtered_users:
-                    # Convert config users to strings for consistent comparison
-                    config_users = [str(user_id) for user_id in self.config.get('filtered_users', {}).get(chat_id, [])]
-                    
-                    if not sender_id:
-                        logging.warning(f"Skipping message: No sender info for chat {chat_id}")
-                        if self.show_detailed_feed:
-                            print("❌ Not forwarding: Could not determine message sender")
-                        return
-                        
-                    if sender_id not in config_users:
-                        logging.warning(f"Skipping message: User {sender_id} not in filtered list for chat {chat_id}")
-                        if self.show_detailed_feed:
-                            print(f"❌ Not forwarding: User {sender.username} ({sender_id}) not in filter list")
-                            print(f"Allowed users for this chat: {config_users}")
-                        return
-                        
-                    logging.warning(f"User {sender_id} is in filtered list for chat {chat_id}")
-                    if self.show_detailed_feed:
-                        print(f"✅ User {sender.username} ({sender_id}) is in filter list")
-                else:
-                    if self.show_detailed_feed:
-                        print("❌ Not forwarding: Message is from unfiltered chat")
-                        print(f"This chat ({chat_id}) should have filters according to config")
+                if not chat or not sender:
+                    logging.error("Could not get chat or sender details")
                     return
-                
-                # Extract contract address
-                contract_address = await self.extract_ca_from_text(message.message)
-                if not contract_address:
-                    if self.show_detailed_feed:
-                        print("❌ Not forwarding: No contract address found")
-                    return
-                
-                # Check if already processed (case-insensitive)
-                if contract_address.lower() in {t.lower() for t in self.processed_tokens}:
-                    if self.show_detailed_feed:
-                        print("❌ Not forwarding: Token already processed")
-                    return
-                
-                if self.show_detailed_feed:
-                    print(f"✅ Found contract address: {contract_address}")
-                    print("🔄 Forwarding to target chat...")
-                
-                # Forward to target chat
-                await self.forward_message(contract_address)
-                
-                # Add to processed tokens after successful forwarding
-                self.processed_tokens.add(contract_address)
-                self.save_processed_tokens()
-                
-                if self.show_detailed_feed:
-                    print("✅ Successfully forwarded to target chat")
-                
             except Exception as e:
-                logging.error(f"Error getting message details: {str(e)}")
-                if self.show_detailed_feed:
-                    print(f"❌ Error getting message details: {str(e)}")
+                logging.error(f"Error getting chat/sender info: {str(e)}")
                 return
-                
+
+            chat_id = str(abs(chat.id))
+            sender_id = str(abs(sender.id))
+
+            if self.show_detailed_feed:
+                print(f"\n📨 Message from: {chat.title}")
+                print(f"👤 Sender: {getattr(sender, 'username', 'Unknown')} ({sender_id})")
+                print(f"💭 Chat ID: {chat_id}")
+                print(f"📝 Message: {message.message}")
+
+            # Check if chat should be monitored (convert stored chats to strings for comparison)
+            if chat_id not in [str(x) for x in self.source_chats]:
+                if self.show_detailed_feed:
+                    print(f"❌ Chat {chat.title} is not in monitored chats")
+                return
+
+            # User filter check
+            if chat_id in self.filtered_users:
+                filter_list = [str(uid) for uid in self.filtered_users[chat_id]]
+                if sender_id not in filter_list:
+                    if self.show_detailed_feed:
+                        print(f"❌ Sender {sender.username} not in filter list")
+                    return
+
+            # Process message content
+            ca = await self.extract_ca_from_text(message.message)
+            if not ca:
+                if self.show_detailed_feed:
+                    print("❌ No contract address found")
+                return
+
+            # Check for already processed tokens (case-insensitive)
+            if ca.lower() in {t.lower() for t in self.processed_tokens}:
+                if self.show_detailed_feed:
+                    print(f"❌ Token {ca} already processed")
+                return
+
+            # Forward to target chat with proper error handling
+            try:
+                await self.forward_message(ca)
+                self.processed_tokens.add(ca)
+                self.save_processed_tokens()
+                self.forwarded_count += 1
+                if self.show_detailed_feed:
+                    print(f"✅ Forwarded {ca} to target chat")
+            except Exception as e:
+                logging.error(f"Error forwarding message: {str(e)}")
+                if self.show_detailed_feed:
+                    print(f"❌ Error forwarding message: {str(e)}")
+
         except Exception as e:
-            logging.error(f"Error handling source message: {str(e)}")
+            logging.error(f"Error in handle_source_message: {str(e)}")
             if self.show_detailed_feed:
                 print(f"❌ Error processing message: {str(e)}")
 
     async def handle_target_message(self, event):
-        """Process messages from target chat for market cap tracking"""
+        """Process messages from target chat with improved token tracking"""
         try:
-            # Get the message
-            message = event.message
-            
-            # Skip if message is None
-            if not message:
+            if not event or not event.message:
                 return
-            
-            # Check for buy/sell messages and handle token tracking
-            if "Buy $" in message.message:
+
+            message = event.message
+            text = message.message.lower() if message.message else ""
+
+            # Track new tokens
+            if "buy $" in text:
                 ca = await self.extract_ca_from_text(message.message)
                 initial_mcap = await self.extract_mcap_from_message(message.message)
+                
                 if ca and initial_mcap:
-                    # Extract token name
-                    name_match = re.search(r'Buy \$([^\s—]+)', message.message)
+                    # Extract token name with improved regex
+                    name_match = re.search(r'buy \$([a-zA-Z0-9_]+)', text, re.IGNORECASE)
                     if name_match:
                         token_name = name_match.group(1)
-                        await self.token_tracker.add_token(ca, token_name, initial_mcap)
-                        print(f"✅ Started tracking token: {token_name} ({ca})")
-                        print(f"📊 Initial Market Cap: ${initial_mcap:,.2f}")
-            
-            # Check for sell messages in real-time
-            text = message.message.lower()
-            if any(phrase in text for phrase in ["sell $", "sold $", "selling $", "exit $", "closed $", "🟢 sell success"]):
+                        # Add validation for token name
+                        if token_name and len(token_name) <= 30:  # Reasonable length limit
+                            await self.token_tracker.add_token(ca, token_name, initial_mcap)
+                            if self.show_detailed_feed:
+                                print(f"✅ Tracking: {token_name} ({ca})")
+                                print(f"📊 Initial MCap: ${initial_mcap:,.2f}")
+
+            # Handle sell messages with improved detection
+            sell_phrases = ["sell $", "sold $", "selling $", "exit $", "closed $", "🟢 sell success"]
+            if any(phrase in text for phrase in sell_phrases):
                 ca = await self.extract_ca_from_text(message.message)
                 if ca:
-                    print(f"🔍 Found sell message for: {ca}")
+                    if self.show_detailed_feed:
+                        print(f"🔍 Sell signal for: {ca}")
                     await self.token_tracker.handle_sell_message(message.message, ca)
-            
+
         except Exception as e:
-            logging.error(f"Error handling target message: {str(e)}")
+            logging.error(f"Error in handle_target_message: {str(e)}")
             logging.exception("Full traceback:")
 
     async def extract_mcap_from_message(self, text: str) -> float:
-        """Extract market cap value from message text"""
-        # Look for patterns like "MC: $161.83K" or "MC: $3.07M"
-        mcap_pattern = r'MC:\s*\$?([\d,.]+)([KMB]?)'
-        match = re.search(mcap_pattern, text)
-        if match:
-            value = float(match.group(1).replace(',', ''))
-            multiplier = {
-                'K': 1_000,
-                'M': 1_000_000,
-                'B': 1_000_000_000,
-                '': 1
-            }[match.group(2)]
-            return value * multiplier
+        """Extract market cap value from message text with improved parsing"""
+        if not text:
+            return None
+
+        # Enhanced pattern matching for various formats
+        mcap_patterns = [
+            r'MC:\s*\$?([\d,]+\.?\d*)([KMBkmb]?)',  # Standard format
+            r'Market Cap:?\s*\$?([\d,]+\.?\d*)([KMBkmb]?)',  # Alternative format
+            r'MCap:?\s*\$?([\d,]+\.?\d*)([KMBkmb]?)'  # Short format
+        ]
+
+        for pattern in mcap_patterns:
+            match = re.search(pattern, text)
+            if match:
+                try:
+                    # Clean and convert value
+                    value = float(match.group(1).replace(',', ''))
+                    
+                    # Normalize multiplier
+                    multiplier = {
+                        'K': 1_000, 'k': 1_000,
+                        'M': 1_000_000, 'm': 1_000_000,
+                        'B': 1_000_000_000, 'b': 1_000_000_000,
+                        '': 1
+                    }.get(match.group(2), 1)
+
+                    mcap = value * multiplier
+                    
+                    # Basic validation
+                    if mcap <= 0 or mcap > 1_000_000_000_000:  # Reasonable range check
+                        continue
+                        
+                    return mcap
+
+                except (ValueError, TypeError) as e:
+                    logging.error(f"Error parsing market cap: {str(e)}")
+                    continue
+
         return None
 
     async def configure_channels(self):
@@ -855,7 +884,8 @@ DEBUG=false
                     indices = [int(x.strip()) for x in choice.split(',')]
                     for idx in indices:
                         if 0 <= idx < len(dialogs):
-                            chat_id = int(dialogs[idx]['id'])
+                            raw_id = dialogs[idx]['id']
+                            chat_id = abs(raw_id)  # NEW: store absolute value
                             if chat_id not in selected_chats:
                                 selected_chats.append(chat_id)
                                 print(f"✅ Added: {dialogs[idx]['name']}")
@@ -1041,17 +1071,38 @@ DEBUG=false
                 
         return True
 
-    async def forward_message(self, contract_address):
+    async def forward_message(self, ca: str):
         """Forward contract address to target chat"""
+        if not self.target_chat:
+            error_msg = "TARGET_CHAT not configured"
+            logging.error(error_msg)
+            raise ValueError(error_msg)
+            
+        if not self.client:
+            error_msg = "Telegram client not initialized"
+            logging.error(error_msg)
+            raise ValueError(error_msg)
+            
         try:
-            target_entity = await self.client.get_entity(TARGET_CHAT)
-            if target_entity:
-                await self.client.send_message(target_entity, contract_address)
-                self.forwarded_count += 1
-                logging.info(f"Successfully forwarded CA to {TARGET_CHAT}")
+            # Get target entity
+            try:
+                target_entity = await self.client.get_entity(self.target_chat)
+            except ValueError as e:
+                error_msg = f"Invalid TARGET_CHAT value: {self.target_chat}. Error: {str(e)}"
+                logging.error(error_msg)
+                raise ValueError(error_msg)
+                
+            # Send message
+            await self.client.send_message(
+                target_entity,
+                ca  # Send original case
+            )
+            logging.info(f"Successfully forwarded {ca} to target chat {self.target_chat}")
+            
         except Exception as e:
-            logging.error(f"Error forwarding message: {str(e)}")
-            raise
+            error_msg = f"Error forwarding message to {self.target_chat}: {str(e)}"
+            logging.error(error_msg)
+            raise ValueError(error_msg)
 
     async def get_dialogs(self) -> List[Dict]:
         """Fetch and return all dialogs (chats/channels)"""
@@ -1387,7 +1438,7 @@ async def main():
             await token_tracker.initial_cleanup()
         
         # Create SimpleSolListener instance
-        listener = SimpleSolListener()
+        listener = SimpleSolListener(client=client)
         
         # Show startup menu and handle user interaction
         await listener.start()
