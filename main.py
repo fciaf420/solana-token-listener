@@ -665,20 +665,24 @@ DEBUG=false
 
             # First check if chat should be monitored
             if chat_id not in [str(x) for x in self.source_chats]:
+                if self.show_detailed_feed:
+                    print(f"ℹ️ Chat {chat.title} ({chat_id}) not in monitored chats")
                 return
 
-            # Then check user filter
-            if chat_id in self.filtered_users:
-                filter_list = [str(uid) for uid in self.filtered_users[chat_id]]
-                if sender_id not in filter_list:
-                    return
-
-            # Only show in detailed feed if message passes all filters
+            # Show message details for all messages from monitored chats
             if self.show_detailed_feed:
                 print(f"\n📨 Message from: {chat.title}")
                 print(f"👤 Sender: {getattr(sender, 'username', 'Unknown')} ({sender_id})")
                 print(f"💭 Chat ID: {chat_id}")
                 print(f"📝 Message: {message.message}")
+
+            # Then check user filter for processing
+            if chat_id in self.filtered_users:
+                filter_list = [str(uid) for uid in self.filtered_users[chat_id]]
+                if sender_id not in filter_list:
+                    if self.show_detailed_feed:
+                        print(f"ℹ️ Message skipped: Sender not in filter list")
+                    return
 
             # Process message content
             ca = await self.extract_ca_from_text(message.message)
