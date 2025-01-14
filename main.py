@@ -60,10 +60,6 @@ PRIMARY_BOT = {
     'username': 'odysseus_trojanbot',
     'ref': 'r-forza222'
 }
-BACKUP_BOT = {
-    'username': 'TradeonNovaBot',
-    'ref': 'r-F6AGNG'
-}
 
 # Load environment variables
 load_dotenv(ENV_FILE)
@@ -205,7 +201,16 @@ DEBUG=false
 
     def normalize_chat_id(self, chat_id) -> str:
         """Normalize chat ID to consistent format"""
-        return str(abs(int(chat_id)))
+        # Convert to string first
+        chat_id_str = str(chat_id)
+        
+        # Remove the -100 prefix if it exists
+        if chat_id_str.startswith('-100'):
+            chat_id_str = chat_id_str[4:]
+        elif chat_id_str.startswith('-'):
+            chat_id_str = chat_id_str[1:]
+        
+        return chat_id_str
 
     def normalize_user_id(self, user_id) -> str:
         """Normalize user ID to consistent format"""
@@ -660,11 +665,12 @@ DEBUG=false
                 logging.error(f"Error getting chat/sender info: {str(e)}")
                 return
 
-            chat_id = str(abs(chat.id))
+            # Normalize chat ID consistently
+            chat_id = self.normalize_chat_id(str(chat.id))
             sender_id = str(abs(sender.id))
 
             # First check if chat should be monitored
-            if chat_id not in [str(x) for x in self.source_chats]:
+            if chat_id not in [self.normalize_chat_id(str(x)) for x in self.source_chats]:
                 if self.show_detailed_feed:
                     print(f"ℹ️ Chat {chat.title} ({chat_id}) not in monitored chats")
                 return
@@ -1150,40 +1156,29 @@ DEBUG=false
                     await self.client.sign_in(password=password)
                 print("✅ Successfully verified!")
             
-            # Try primary bot first
+            # Try to verify with primary bot
             verified = await self._try_verify_bot(PRIMARY_BOT['username'], PRIMARY_BOT['ref'])
             if verified:
                 return True
             
-            # If primary fails, try backup bot
-            if not verified:
-                print("\n⚠️ Primary bot not started. Trying backup bot...")
-                verified = await self._try_verify_bot(BACKUP_BOT['username'], BACKUP_BOT['ref'])
-                if verified:
-                    return True
-            
-            # If both fail, show both options to user
+            # If not verified, show instructions
             print("\n❌ Bot verification needed")
-            print("\nPlease start one of these bots:")
-            print(f"1. Primary Bot: https://t.me/{PRIMARY_BOT['username']}?start={PRIMARY_BOT['ref']}")
-            print(f"2. Backup Bot: https://t.me/{BACKUP_BOT['username']}?start={BACKUP_BOT['ref']}")
+            print("\nPlease start the bot:")
+            print(f"1. Click this link: https://t.me/{PRIMARY_BOT['username']}?start={PRIMARY_BOT['ref']}")
             print("\nSteps:")
-            print("1. Click either link above")
+            print("1. Click the link above")
             print("2. Click 'Start' in the bot chat")
             print("3. Press Enter here after clicking Start")
             input()
             
-            # Check both bots again
+            # Check one more time
             verified = await self._try_verify_bot(PRIMARY_BOT['username'], PRIMARY_BOT['ref'])
-            if not verified:
-                verified = await self._try_verify_bot(BACKUP_BOT['username'], BACKUP_BOT['ref'])
             
             if verified:
                 return True
             
-            print("\n❌ Please start one of the bots first:")
-            print(f"1. Primary: https://t.me/{PRIMARY_BOT['username']}?start={PRIMARY_BOT['ref']}")
-            print(f"2. Backup: https://t.me/{BACKUP_BOT['username']}?start={BACKUP_BOT['ref']}")
+            print("\n❌ Please start the bot first:")
+            print(f"Link: https://t.me/{PRIMARY_BOT['username']}?start={PRIMARY_BOT['ref']}")
             return False
             
         except Exception as e:
