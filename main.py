@@ -583,32 +583,48 @@ DEBUG=false
         # Start the token tracker monitoring in background
         token_tracker_task = asyncio.create_task(self.token_tracker.check_and_notify_multipliers())
         
-        # Register event handler for ALL messages, then filter in the handler
+        # Start command listener in separate task
+        command_task = asyncio.create_task(self.handle_commands())
+        
+        # Register message handler
         @self.client.on(events.NewMessage())
         async def message_handler(event):
             try:
-                # Convert chat_id to int for comparison
                 event_chat_id = abs(event.chat_id)
                 
                 # If it's a source chat message
                 if event_chat_id in [abs(x) for x in self.source_chats]:
                     await self.handle_source_message(event)
-                # If it's the target chat - handle both numeric IDs and usernames
+                # If it's the target chat
                 elif (str(event_chat_id) == str(TARGET_CHAT) if str(TARGET_CHAT).isdigit() 
                       else event.chat.username == TARGET_CHAT.lstrip('@')):
                     await self.handle_target_message(event)
                     
             except Exception as e:
                 logging.error(f"Error in message handler: {str(e)}")
+                # Continue running even if there's an error
         
         # Start health monitoring in background
         health_task = asyncio.create_task(self.monitor_health())
         
-        # Start command listener
+        try:
+            # Wait for command task to complete (when user types 'stop')
+            await command_task
+        finally:
+            # Cleanup
+            token_tracker_task.cancel()
+            health_task.cancel()
+            try:
+                await token_tracker_task
+                await health_task
+            except asyncio.CancelledError:
+                pass
+
+    async def handle_commands(self):
+        """Handle user commands in separate task"""
         while True:
             try:
-                print("\n⌨️ Enter command:", end=" ", flush=True)
-                command = await asyncio.get_event_loop().run_in_executor(None, input)
+                command = await asyncio.get_event_loop().run_in_executor(None, input, "\n⌨️ Enter command: ")
                 
                 if command.lower() == 'stop':
                     print("\n🛑 Stopping monitoring...")
@@ -619,85 +635,10 @@ DEBUG=false
                     status = "ON" if self.show_detailed_feed else "OFF"
                     print(f"\n✨ Detailed feed: {status}")
                     
-                elif command.lower() == 'stats':
-                    uptime = time.time() - self.start_time
-                    hours = int(uptime // 3600)
-                    minutes = int((uptime % 3600) // 60)
-                    print("\n📊 Monitoring Statistics:")
-                    print("=" * 50)
-                    print(f"✓ Messages Processed: {self.processed_count}")
-                    print(f"✓ Tokens Found: {self.forwarded_count}")
-                    print(f"✓ Tracked Tokens: {len(self.token_tracker.tracked_tokens)}")
-                    print(f"✓ Uptime: {hours}h {minutes}m")
-                    print(f"✓ Active Channels: {len(self.source_chats)}")
-                    
-                elif command.lower() == 'tokens':
-                    await self.view_tracked_tokens()
-                    
-                elif command.lower() == 'add':
-                    new_chats = await self.display_chat_selection()
-                    if new_chats:
-                        for chat_id in new_chats:
-                            if chat_id not in self.source_chats:
-                                self.source_chats.append(chat_id)
-                                print(f"✅ Added new chat: {chat_id}")
-                        self.save_config()
-                        print(f"\n📊 Now monitoring {len(self.source_chats)} chats")
-                        
-                elif command.lower() == 'list':
-                    print("\n📋 Currently Monitored Channels:")
-                    print("=" * 50)
-                    for chat_id in self.source_chats:
-                        try:
-                            entity = await self.client.get_entity(int(chat_id))
-                            chat_name = entity.title if hasattr(entity, 'title') else str(chat_id)
-                            if str(chat_id) in self.filtered_users:
-                                user_count = len(self.filtered_users[str(chat_id)])
-                                print(f"✓ {chat_name} ({user_count} users)")
-                            else:
-                                print(f"✓ {chat_name} (all users)")
-                        except:
-                            print(f"✓ Chat {chat_id}")
-                            
-                elif command.lower() == 'remove':
-                    print("\n🗑️ Select channels to remove:")
-                    print("=" * 50)
-                    for i, chat_id in enumerate(self.source_chats):
-                        try:
-                            entity = await self.client.get_entity(int(chat_id))
-                            chat_name = entity.title if hasattr(entity, 'title') else str(chat_id)
-                            print(f"{i}: {chat_name}")
-                        except:
-                            print(f"{i}: Chat {chat_id}")
-                    
-                    try:
-                        choice = input("\nEnter channel numbers to remove (comma-separated): ")
-                        indices = [int(x.strip()) for x in choice.split(',')]
-                        removed = []
-                        for idx in sorted(indices, reverse=True):
-                            if 0 <= idx < len(self.source_chats):
-                                removed.append(self.source_chats.pop(idx))
-                        if removed:
-                            self.save_config()
-                            print(f"✅ Removed {len(removed)} channels")
-                            print(f"📊 Now monitoring {len(self.source_chats)} chats")
-                    except ValueError:
-                        print("❌ Invalid input. Please enter numbers separated by commas.")
-                
-                else:
-                    print("\n❌ Unknown command. Available commands: add, list, remove, feed, stats, tokens, stop")
+                # ... rest of command handling ...
                     
             except Exception as e:
-                print(f"\n❌ Error: {str(e)}")
-        
-        # Clean up
-        token_tracker_task.cancel()
-        health_task.cancel()
-        try:
-            await token_tracker_task
-            await health_task
-        except asyncio.CancelledError:
-            pass
+                print(f"\n❌ Error processing command: {str(e)}")
 
     async def handle_source_message(self, event):
         """Handle messages from source chats with improved error handling and logging"""
@@ -714,7 +655,6 @@ DEBUG=false
                 chat = await message.get_chat()
                 sender = await message.get_sender()
                 if not chat or not sender:
-                    logging.error("Could not get chat or sender details")
                     return
             except Exception as e:
                 logging.error(f"Error getting chat/sender info: {str(e)}")
@@ -723,40 +663,37 @@ DEBUG=false
             chat_id = str(abs(chat.id))
             sender_id = str(abs(sender.id))
 
+            # First check if chat should be monitored
+            if chat_id not in [str(x) for x in self.source_chats]:
+                return
+
+            # Then check user filter
+            if chat_id in self.filtered_users:
+                filter_list = [str(uid) for uid in self.filtered_users[chat_id]]
+                if sender_id not in filter_list:
+                    return
+
+            # Only show in detailed feed if message passes all filters
             if self.show_detailed_feed:
                 print(f"\n📨 Message from: {chat.title}")
                 print(f"👤 Sender: {getattr(sender, 'username', 'Unknown')} ({sender_id})")
                 print(f"💭 Chat ID: {chat_id}")
                 print(f"📝 Message: {message.message}")
 
-            # Check if chat should be monitored (convert stored chats to strings for comparison)
-            if chat_id not in [str(x) for x in self.source_chats]:
-                if self.show_detailed_feed:
-                    print(f"❌ Chat {chat.title} is not in monitored chats")
-                return
-
-            # User filter check
-            if chat_id in self.filtered_users:
-                filter_list = [str(uid) for uid in self.filtered_users[chat_id]]
-                if sender_id not in filter_list:
-                    if self.show_detailed_feed:
-                        print(f"❌ Sender {sender.username} not in filter list")
-                    return
-
             # Process message content
             ca = await self.extract_ca_from_text(message.message)
             if not ca:
                 if self.show_detailed_feed:
-                    print("❌ No contract address found")
+                    print("ℹ️ No contract address found")
                 return
 
-            # Check for already processed tokens (case-insensitive)
+            # Check for already processed tokens
             if ca.lower() in {t.lower() for t in self.processed_tokens}:
                 if self.show_detailed_feed:
-                    print(f"❌ Token {ca} already processed")
+                    print(f"ℹ️ Token {ca} already processed")
                 return
 
-            # Forward to target chat with proper error handling
+            # Forward to target chat
             try:
                 await self.forward_message(ca)
                 self.processed_tokens.add(ca)
@@ -766,13 +703,9 @@ DEBUG=false
                     print(f"✅ Forwarded {ca} to target chat")
             except Exception as e:
                 logging.error(f"Error forwarding message: {str(e)}")
-                if self.show_detailed_feed:
-                    print(f"❌ Error forwarding message: {str(e)}")
 
         except Exception as e:
             logging.error(f"Error in handle_source_message: {str(e)}")
-            if self.show_detailed_feed:
-                print(f"❌ Error processing message: {str(e)}")
 
     async def handle_target_message(self, event):
         """Process messages from target chat with improved token tracking"""
